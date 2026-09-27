@@ -58,7 +58,10 @@ impl BlinkDetector {
         let ear_metrics = match self.ear_calculator.calculate(landmarks) {
             Some(metrics) => metrics,
             None => {
-                // If face not detected, pause stare warning timer to prevent false alarms
+                // If face not detected, pause stare warning timer and clear active closure state
+                self.is_currently_closed = false;
+                self.closure_start_instant = None;
+                self.closed_frames_count = 0;
                 self.last_open_instant = now;
                 self.stare_warning_issued = false;
                 return BlinkEvent {
@@ -88,7 +91,9 @@ impl BlinkDetector {
 
             // Check if eye is resting (> 1.0s continuous closure)
             if let Some(start_time) = self.closure_start_instant {
-                let duration = now.duration_since(start_time).as_secs_f32();
+                let duration = now.checked_duration_since(start_time)
+                    .map(|d| d.as_secs_f32())
+                    .unwrap_or(0.0);
                 if duration >= 1.0 {
                     is_resting_event = true;
                     // While resting, pause the stare timer so dry eye alert doesn't trigger
@@ -101,7 +106,9 @@ impl BlinkDetector {
             if self.is_currently_closed {
                 // Eye just reopened! Calculate duration of closure
                 if let Some(start_time) = self.closure_start_instant {
-                    let closure_duration = now.duration_since(start_time).as_secs_f32();
+                    let closure_duration = now.checked_duration_since(start_time)
+                        .map(|d| d.as_secs_f32())
+                        .unwrap_or(0.0);
 
                     // Valid biological blink: between 0.08s and 0.8s
                     if (0.08..=0.8).contains(&closure_duration) || (self.closed_frames_count >= 2 && closure_duration < 1.0) {
@@ -125,7 +132,9 @@ impl BlinkDetector {
         let stare_duration = if self.is_currently_closed {
             0.0
         } else {
-            now.duration_since(self.last_open_instant).as_secs_f32()
+            now.checked_duration_since(self.last_open_instant)
+                .map(|d| d.as_secs_f32())
+                .unwrap_or(0.0)
         };
 
         let mut trigger_stare_warning = false;
