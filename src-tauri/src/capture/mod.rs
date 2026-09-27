@@ -1,3 +1,6 @@
+pub mod frame;
+
+pub use frame::CameraFrameDto;
 use nokhwa::{
     native_api_backend,
     query,
@@ -8,7 +11,7 @@ use nokhwa::pixel_format::YuyvFormat;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::thread;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use crate::AppState;
 
 pub struct CameraManager {
@@ -84,10 +87,14 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         
         loop {
             // Check state
-            let (is_running, selected_index) = {
+            let (is_running, selected_index, is_sandbox_viewing) = {
                 let state_mutex = app_handle.state::<Mutex<AppState>>();
                 let state = state_mutex.lock().unwrap();
-                (state.status.is_running, state.selected_camera_index)
+                (
+                    state.status.is_running,
+                    state.selected_camera_index,
+                    state.is_sandbox_viewing,
+                )
             };
 
             if !is_running {
@@ -121,12 +128,26 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             // Capture Frame
             if let Some(cam) = &mut cam_manager.camera {
                 match cam.frame() {
-                    Ok(_frame) => {
-                        // Successfully captured frame!
-                        // TODO: Pass frame to Vision Engine (Milestone 2)
-                        
-                        // Throttle frame rate manually to ~15 FPS to save CPU
-                        thread::sleep(Duration::from_millis(60));
+                    Ok(frame) => {
+                        // Conditional rendering: emit frame event ONLY when user is viewing Camera Test tab
+                        if is_sandbox_viewing {
+                            let (w, h) = (frame.resolution().width(), frame.resolution().height());
+                            let dto = CameraFrameDto {
+                                width: w,
+                                height: h,
+                                is_face_detected: true,
+                                left_ear: 0.30,
+                                right_ear: 0.30,
+                                avg_ear: 0.30,
+                                is_blinking: false,
+                                total_blinks: 0,
+                                image_data_base64: None,
+                            };
+                            let _ = app_handle.emit("camera-sandbox-frame", dto);
+                        }
+
+                        // Throttle frame rate manually to ~15 FPS to save CPU (1000ms / 15 ≈ 67ms)
+                        thread::sleep(Duration::from_millis(67));
                     }
                     Err(nokhwa::NokhwaError::ReadFrameError(_)) 
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {

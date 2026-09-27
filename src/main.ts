@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 interface AppStatus {
   is_running: boolean;
@@ -7,6 +8,18 @@ interface AppStatus {
   next_break_seconds: number;
   total_blinks_today: number;
   status_text: string;
+}
+
+interface CameraFrameDto {
+  width: number;
+  height: number;
+  is_face_detected: boolean;
+  left_ear: number;
+  right_ear: number;
+  avg_ear: number;
+  is_blinking: boolean;
+  total_blinks: number;
+  image_data_base64: string | null;
 }
 
 interface DailyCompliance {
@@ -18,12 +31,22 @@ interface DailyCompliance {
 }
 
 let sandboxBlinks = 0;
+let wasBlinking = false;
+let unlistenCameraFrames: (() => void) | null = null;
+
+window.addEventListener("beforeunload", () => {
+  if (unlistenCameraFrames) {
+    unlistenCameraFrames();
+    unlistenCameraFrames = null;
+  }
+});
 
 window.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupIPC();
   loadCameras();
   startStatusPoller();
+  listenToCameraFrames();
 });
 
 function setupTabs() {
@@ -42,10 +65,13 @@ function setupTabs() {
       const pane = document.getElementById(targetTab);
       if (pane) pane.classList.add("active");
 
-      // Reset sandbox counter if switching to Camera Test tab
+      // Reset sandbox counter and notify backend if switching to Camera Test tab
       if (targetTab === "tab-camera") {
         sandboxBlinks = 0;
         updateSandboxUI();
+        invoke("set_sandbox_viewing", { active: true }).catch(console.error);
+      } else {
+        invoke("set_sandbox_viewing", { active: false }).catch(console.error);
       }
 
       // Refresh stats if switching to Stats tab
@@ -59,6 +85,7 @@ function setupTabs() {
   const closeBtn = document.getElementById("btn-close");
   closeBtn?.addEventListener("click", async () => {
     try {
+      await invoke("set_sandbox_viewing", { active: false });
       await invoke("hide_window");
     } catch (e) {
       console.error("Failed to hide window:", e);
@@ -180,6 +207,26 @@ async function loadStats() {
     }
   } catch (e) {
     console.error("Failed to load compliance stats:", e);
+  }
+}
+
+async function listenToCameraFrames() {
+  try {
+    unlistenCameraFrames = await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
+      const data = event.payload;
+      // Rising-edge trigger: count only on transition to prevent multi-frame duplicate increments
+      if (data.is_blinking) {
+        if (!wasBlinking) {
+          sandboxBlinks += 1;
+          updateSandboxUI();
+        }
+        wasBlinking = true;
+      } else {
+        wasBlinking = false;
+      }
+    });
+  } catch (e) {
+    console.error("Failed to register camera frame listener:", e);
   }
 }
 
