@@ -148,7 +148,7 @@ async function loadStats() {
 
     const today = history[0];
     const totalBreaks = today.breaks_completed + today.breaks_skipped;
-    const rate = totalBreaks > 0 ? Math.round((today.breaks_completed / totalBreaks) * 100) : 100;
+    const rate = totalBreaks > 0 ? Math.round((today.breaks_completed / totalBreaks) * 100) : 0;
 
     const complianceEl = document.getElementById("stat-compliance");
     if (complianceEl) {
