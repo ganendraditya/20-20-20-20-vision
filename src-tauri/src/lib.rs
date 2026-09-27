@@ -1,3 +1,5 @@
+pub mod capture;
+
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -60,10 +62,8 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
 }
 
 #[tauri::command]
-fn get_cameras(state: State<'_, Mutex<AppState>>) -> Vec<String> {
-    let _state = state.lock().unwrap();
-    // Default placeholder device list, populated in Milestone 2
-    vec!["Default Camera (Device 0)".to_string()]
+fn get_cameras(_state: State<'_, Mutex<AppState>>) -> Vec<String> {
+    capture::CameraManager::list_cameras()
 }
 
 #[tauri::command]
@@ -123,6 +123,9 @@ pub fn run() {
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Start the background camera capture daemon
+            capture::run_capture_loop(app.handle().clone());
+
             // Build Tray Menu
             let toggle_item = MenuItem::with_id(app, "toggle_window", "Open 420vision", true, None::<&str>)?;
             let pause_item = MenuItem::with_id(app, "toggle_pause", "Pause / Resume Monitoring", true, None::<&str>)?;
