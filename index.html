@@ -31,7 +31,7 @@
         <!-- Tab 1: Home (1.1.1.1 Master Toggle) -->
         <section id="tab-home" class="tab-pane active">
           <div class="status-indicator-badge">
-            <span class="status-dot"></span>
+            <span id="status-indicator-dot" class="status-dot"></span>
             <span id="lbl-status-text">Monitoring Active</span>
           </div>
 
@@ -50,7 +50,7 @@
             </div>
             <div class="metric-card">
               <span class="metric-label">Next Break</span>
-              <span id="val-next-break" class="metric-value">14:20</span>
+              <span id="val-next-break" class="metric-value">20:00</span>
               <span class="metric-sub">20-20-20-20 Rule</span>
             </div>
           </div>
@@ -79,19 +79,19 @@
           <div class="stats-overview">
             <div class="stat-row">
               <span>20-20-20 Compliance</span>
-              <strong class="text-green">80% (4 / 5)</strong>
+              <strong id="stat-compliance" class="text-green">0% (0 / 0)</strong>
             </div>
             <div class="stat-row">
               <span>Active Screen Hours</span>
-              <strong>1h 40m</strong>
+              <strong id="stat-screen-hours">0m</strong>
             </div>
             <div class="stat-row">
               <span>Daily Avg Blink Rate</span>
-              <strong class="text-accent">16.5 BPM</strong>
+              <strong id="stat-avg-bpm" class="text-accent">16.0 BPM</strong>
             </div>
           </div>
           <div class="streak-box">
-            <span>🔥 4-Day Healthy Blink Streak</span>
+            <span id="stat-streak-msg">🔥 Ready to protect your eyes today</span>
           </div>
         </section>
 
@@ -100,7 +100,7 @@
           <div class="settings-group">
             <label class="setting-label">Camera Device</label>
             <select id="sel-camera" class="form-select">
-              <option value="0">Default Camera (Device 0)</option>
+              <option value="0">Loading cameras...</option>
             </select>
           </div>
 
