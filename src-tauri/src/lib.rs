@@ -94,16 +94,24 @@ pub struct DailyCompliance {
 
 #[tauri::command]
 fn get_stats() -> Vec<DailyCompliance> {
-    // Initial schema for analytics stats
-    vec![
-        DailyCompliance {
-            date: "Today".to_string(),
-            avg_bpm: 16.5,
-            breaks_completed: 4,
-            breaks_skipped: 1,
-            screen_minutes: 100,
+    match storage::AnalyticsDb::open() {
+        Ok(db) => match db.get_compliance_history(7) {
+            Ok(history) if !history.is_empty() => history,
+            _ => vec![
+                DailyCompliance {
+                    date: "Today".to_string(),
+                    avg_bpm: 16.0,
+                    breaks_completed: 0,
+                    breaks_skipped: 0,
+                    screen_minutes: 0,
+                },
+            ],
         },
-    ]
+        Err(e) => {
+            eprintln!("[420vision] Failed to query analytics DB: {}", e);
+            vec![]
+        }
+    }
 }
 
 #[tauri::command]

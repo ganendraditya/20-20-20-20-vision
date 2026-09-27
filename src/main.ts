@@ -9,11 +9,20 @@ interface AppStatus {
   status_text: string;
 }
 
+interface DailyCompliance {
+  date: string;
+  avg_bpm: number;
+  breaks_completed: number;
+  breaks_skipped: number;
+  screen_minutes: number;
+}
+
 let sandboxBlinks = 0;
 
 window.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupIPC();
+  loadCameras();
   startStatusPoller();
 });
 
@@ -37,6 +46,11 @@ function setupTabs() {
       if (targetTab === "tab-camera") {
         sandboxBlinks = 0;
         updateSandboxUI();
+      }
+
+      // Refresh stats if switching to Stats tab
+      if (targetTab === "tab-stats") {
+        loadStats();
       }
     });
   });
@@ -96,21 +110,95 @@ function setupIPC() {
       console.error("Failed to start calibration:", e);
     }
   });
+
+  // Camera selector change
+  const camSelect = document.getElementById("sel-camera") as HTMLSelectElement | null;
+  camSelect?.addEventListener("change", async () => {
+    const idx = parseInt(camSelect.value, 10);
+    try {
+      await invoke("set_camera", { index: idx });
+    } catch (e) {
+      console.error("Failed to set camera:", e);
+    }
+  });
+}
+
+async function loadCameras() {
+  const sel = document.getElementById("sel-camera") as HTMLSelectElement | null;
+  if (!sel) return;
+
+  try {
+    const cameras = await invoke<string[]>("get_cameras");
+    sel.innerHTML = "";
+    cameras.forEach((cam, idx) => {
+      const opt = document.createElement("option");
+      opt.value = idx.toString();
+      opt.textContent = cam;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    console.error("Failed to load cameras:", e);
+  }
+}
+
+async function loadStats() {
+  try {
+    const history = await invoke<DailyCompliance[]>("get_stats");
+    if (history.length === 0) return;
+
+    const today = history[0];
+    const totalBreaks = today.breaks_completed + today.breaks_skipped;
+    const complianceEl = document.getElementById("stat-compliance");
+    if (complianceEl) {
+      if (totalBreaks === 0) {
+        complianceEl.textContent = "\u2014 (No breaks yet)";
+      } else {
+        const rate = Math.round((today.breaks_completed / totalBreaks) * 100);
+        complianceEl.textContent = `${rate}% (${today.breaks_completed} / ${totalBreaks})`;
+      }
+    }
+
+    const hoursEl = document.getElementById("stat-screen-hours");
+    if (hoursEl) {
+      const hrs = Math.floor(today.screen_minutes / 60);
+      const mins = today.screen_minutes % 60;
+      hoursEl.textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    }
+
+    const bpmEl = document.getElementById("stat-avg-bpm");
+    if (bpmEl) {
+      bpmEl.textContent = `${today.avg_bpm.toFixed(1)} BPM`;
+    }
+
+    const streakEl = document.getElementById("stat-streak-msg");
+    if (streakEl) {
+      if (today.breaks_completed > 0) {
+        streakEl.textContent = `🔥 ${today.breaks_completed} break(s) completed today!`;
+      } else {
+        streakEl.textContent = `🌱 Ready to protect your eyes today`;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load compliance stats:", e);
+  }
 }
 
 function updateToggleUI(isRunning: boolean) {
   const btn = document.getElementById("btn-master-toggle");
   const stateLbl = document.getElementById("lbl-toggle-state");
   const statusLbl = document.getElementById("lbl-status-text");
+  const dot = document.getElementById("status-indicator-dot");
 
   if (isRunning) {
     btn?.classList.add("active");
     if (stateLbl) stateLbl.textContent = "ON";
     if (statusLbl) statusLbl.textContent = "Monitoring Active";
+    if (dot) dot.style.background = "#10b981";
   } else {
     btn?.classList.remove("active");
     if (stateLbl) stateLbl.textContent = "OFF";
     if (statusLbl) statusLbl.textContent = "Monitoring Paused";
+    if (dot) dot.style.background = "#6b7280";
   }
 }
 
@@ -119,6 +207,11 @@ async function startStatusPoller() {
     try {
       const status = await invoke<AppStatus>("get_status");
       updateToggleUI(status.is_running);
+
+      const statusLbl = document.getElementById("lbl-status-text");
+      if (statusLbl && status.is_running) {
+        statusLbl.textContent = status.status_text;
+      }
 
       const bpmLbl = document.getElementById("val-bpm");
       if (bpmLbl) bpmLbl.innerHTML = `${Math.round(status.bpm)} <small>BPM</small>`;
