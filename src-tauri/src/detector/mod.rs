@@ -1,3 +1,6 @@
+pub mod state_machine;
+
+pub use state_machine::{BlinkDetector, BlinkEvent};
 use crate::vision::Landmark3D;
 
 // Single source of truth for canonical MediaPipe 468 landmark indices around the eyes
