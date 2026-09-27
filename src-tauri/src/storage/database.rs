@@ -69,7 +69,7 @@ impl AnalyticsDb {
              ON CONFLICT(date) DO UPDATE SET
                 avg_bpm = CASE 
                     WHEN (active_screen_seconds + ?6) > 0.0 THEN ((total_blinks + ?3) * 60.0) / (active_screen_seconds + ?6)
-                    ELSE ?2
+                    ELSE avg_bpm
                 END,
                 total_blinks = total_blinks + ?3,
                 breaks_completed = breaks_completed + ?4,
