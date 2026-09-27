@@ -1,0 +1,26 @@
+# Rust
+/src-tauri/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node / Web
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri build artifacts
+src-tauri/gen/
+
+# Editor & OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Environment & Models
+models/*.onnx
+models/*.task
+!models/.gitkeep

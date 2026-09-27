@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>420vision</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body class="bg-dark text-light select-none">
+    <div id="app" class="popover-container">
+      <!-- Titlebar / Header -->
+      <header class="app-header">
+        <div class="logo-area">
+          <span class="logo-icon">👁️</span>
+          <span class="logo-title">420vision</span>
+        </div>
+        <button id="btn-close" class="header-action-btn" title="Hide to Tray">✕</button>
+      </header>
+
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs">
+        <button class="tab-btn active" data-tab="tab-home">Home</button>
+        <button class="tab-btn" data-tab="tab-camera">Camera Test</button>
+        <button class="tab-btn" data-tab="tab-stats">Stats</button>
+        <button class="tab-btn" data-tab="tab-settings">Settings</button>
+      </nav>
+
+      <!-- Main Content Views -->
+      <main class="tab-content-area">
+        <!-- Tab 1: Home (1.1.1.1 Master Toggle) -->
+        <section id="tab-home" class="tab-pane active">
+          <div class="status-indicator-badge">
+            <span class="status-dot"></span>
+            <span id="lbl-status-text">Monitoring Active</span>
+          </div>
+
+          <div class="toggle-center-container">
+            <button id="btn-master-toggle" class="master-toggle-btn active">
+              <span class="power-icon">⏻</span>
+              <span id="lbl-toggle-state" class="toggle-text">ON</span>
+            </button>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Blink Rate</span>
+              <span id="val-bpm" class="metric-value">16 <small>BPM</small></span>
+              <span class="metric-sub">Target: 20 BPM</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Next Break</span>
+              <span id="val-next-break" class="metric-value">14:20</span>
+              <span class="metric-sub">20-20-20-20 Rule</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 2: Camera Test (PhotoBooth Sandbox) -->
+        <section id="tab-camera" class="tab-pane">
+          <div class="camera-preview-box">
+            <div class="camera-placeholder">
+              <span class="cam-icon">📹</span>
+              <p>Camera Stream Ready</p>
+              <small class="text-muted">Face & Eye mesh tracking active</small>
+            </div>
+          </div>
+          <div class="sandbox-controls">
+            <div class="sandbox-counter">
+              <span>Test Blinks:</span>
+              <strong id="val-sandbox-blinks">0</strong>
+            </div>
+            <button id="btn-reset-sandbox" class="btn-sm">🔄 Reset</button>
+          </div>
+        </section>
+
+        <!-- Tab 3: Stats & Compliance -->
+        <section id="tab-stats" class="tab-pane">
+          <div class="stats-overview">
+            <div class="stat-row">
+              <span>20-20-20 Compliance</span>
+              <strong class="text-green">80% (4 / 5)</strong>
+            </div>
+            <div class="stat-row">
+              <span>Active Screen Hours</span>
+              <strong>1h 40m</strong>
+            </div>
+            <div class="stat-row">
+              <span>Daily Avg Blink Rate</span>
+              <strong class="text-accent">16.5 BPM</strong>
+            </div>
+          </div>
+          <div class="streak-box">
+            <span>🔥 4-Day Healthy Blink Streak</span>
+          </div>
+        </section>
+
+        <!-- Tab 4: Settings -->
+        <section id="tab-settings" class="tab-pane">
+          <div class="settings-group">
+            <label class="setting-label">Camera Device</label>
+            <select id="sel-camera" class="form-select">
+              <option value="0">Default Camera (Device 0)</option>
+            </select>
+          </div>
+
+          <div class="settings-group toggle-row">
+            <span>Sound Cues</span>
+            <input type="checkbox" id="chk-sound" checked />
+          </div>
+
+          <div class="settings-group toggle-row">
+            <span>Stare Alert (>8s)</span>
+            <input type="checkbox" id="chk-stare" checked />
+          </div>
+
+          <div class="settings-group pt-2">
+            <button id="btn-calibrate" class="btn-primary w-full">🎯 Calibrate Eye Shape (5s)</button>
+          </div>
+
+          <div class="settings-group pt-2">
+            <button id="btn-quit" class="btn-danger w-full">Quit 420vision</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
