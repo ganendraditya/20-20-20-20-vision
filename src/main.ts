@@ -31,6 +31,15 @@ interface DailyCompliance {
 }
 
 let sandboxBlinks = 0;
+let wasBlinking = false;
+let unlistenCameraFrames: (() => void) | null = null;
+
+window.addEventListener("beforeunload", () => {
+  if (unlistenCameraFrames) {
+    unlistenCameraFrames();
+    unlistenCameraFrames = null;
+  }
+});
 
 window.addEventListener("DOMContentLoaded", () => {
   setupTabs();
@@ -203,11 +212,17 @@ async function loadStats() {
 
 async function listenToCameraFrames() {
   try {
-    await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
+    unlistenCameraFrames = await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
       const data = event.payload;
+      // Rising-edge trigger: count only on transition to prevent multi-frame duplicate increments
       if (data.is_blinking) {
-        sandboxBlinks += 1;
-        updateSandboxUI();
+        if (!wasBlinking) {
+          sandboxBlinks += 1;
+          updateSandboxUI();
+        }
+        wasBlinking = true;
+      } else {
+        wasBlinking = false;
       }
     });
   } catch (e) {

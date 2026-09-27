@@ -69,10 +69,9 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
 }
 
 #[tauri::command]
-fn set_sandbox_viewing(active: bool, state: State<'_, Mutex<AppState>>) -> bool {
+fn set_sandbox_viewing(active: bool, state: State<'_, Mutex<AppState>>) {
     let mut state = state.lock().unwrap();
     state.is_sandbox_viewing = active;
-    true
 }
 
 #[tauri::command]
@@ -125,6 +124,10 @@ fn get_stats() -> Vec<DailyCompliance> {
 
 #[tauri::command]
 fn hide_window(app: AppHandle) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+    state.is_sandbox_viewing = false;
+
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
@@ -169,6 +172,9 @@ pub fn run() {
                         "toggle_window" => {
                             if let Some(window) = app.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {
+                                    let state = app.state::<Mutex<AppState>>();
+                                    let mut state = state.lock().unwrap();
+                                    state.is_sandbox_viewing = false;
                                     let _ = window.hide();
                                 } else {
                                     let _ = window.show();
@@ -202,6 +208,9 @@ pub fn run() {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
+                                let state = app.state::<Mutex<AppState>>();
+                                let mut state = state.lock().unwrap();
+                                state.is_sandbox_viewing = false;
                                 let _ = window.hide();
                             } else {
                                 let _ = window.show();

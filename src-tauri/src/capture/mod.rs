@@ -146,8 +146,8 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             let _ = app_handle.emit("camera-sandbox-frame", dto);
                         }
 
-                        // Throttle frame rate manually to ~15 FPS to save CPU
-                        thread::sleep(Duration::from_millis(60));
+                        // Throttle frame rate manually to ~15 FPS to save CPU (1000ms / 15 ≈ 67ms)
+                        thread::sleep(Duration::from_millis(67));
                     }
                     Err(nokhwa::NokhwaError::ReadFrameError(_)) 
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
