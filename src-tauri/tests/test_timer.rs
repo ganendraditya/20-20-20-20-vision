@@ -101,4 +101,18 @@ fn test_sleep_and_wake_lifecycle() {
 
     let state_after_wake = timer.update(true, now);
     assert_eq!(state_after_wake.active_screen_seconds, 0.0, "Should reset cycle after long sleep");
+
+    // Also test short sleep (< away_reset_seconds): active screen time should be preserved
+    let mut timer_short = PresenceTimer::new(1200.0, 300.0);
+    let mut now_short = Instant::now();
+    timer_short.update(true, now_short);
+    now_short += Duration::from_secs(200);
+    timer_short.update(true, now_short);
+
+    timer_short.handle_sleep_event(now_short);
+    now_short += Duration::from_secs(60); // 60s < 300s
+    timer_short.handle_wake_event(now_short);
+
+    let state_short = timer_short.update(true, now_short);
+    assert!(state_short.active_screen_seconds >= 200.0 && state_short.active_screen_seconds < 205.0);
 }

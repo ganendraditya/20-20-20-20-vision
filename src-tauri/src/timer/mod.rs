@@ -116,7 +116,7 @@ impl PresenceTimer {
 
     /// Handle OS wake / unlock event
     pub fn handle_wake_event(&mut self, now: Instant) {
-        if let Some(away_start) = self.away_start_instant {
+        if let Some(away_start) = self.away_start_instant.take() {
             let away_duration = now
                 .checked_duration_since(away_start)
                 .map(|d| d.as_secs_f32())
