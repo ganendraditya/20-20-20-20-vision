@@ -1,0 +1,69 @@
+use std::process::Command;
+use std::thread;
+
+pub struct Notifier;
+
+impl Notifier {
+    /// Send non-blocking native desktop notification
+    pub fn send(title: &str, message: &str) {
+        let title_owned = title.to_string();
+        let message_owned = message.to_string();
+
+        thread::spawn(move || {
+            #[cfg(target_os = "macos")]
+            {
+                // Native macOS notification banner via osascript using positional argv
+                // (Prevents AppleScript injection: strings are passed as raw argv, never interpolated)
+                let script = r#"
+                    on run argv
+                        display notification (item 2 of argv) with title (item 1 of argv)
+                    end run
+                "#;
+                let _ = Command::new("osascript")
+                    .arg("-e")
+                    .arg(script)
+                    .arg(&title_owned)
+                    .arg(&message_owned)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                // Native Windows Action Center toast via PowerShell using environment variables
+                // (Safest injection-proof approach: variables are passed via OS environment block, avoiding CLI argument parser)
+                let script = r#"
+                    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+                    $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+                    $textNodes = $template.GetElementsByTagName("text")
+                    $textNodes.Item(0).AppendChild($template.CreateTextNode($env:TOAST_TITLE)) > $null
+                    $textNodes.Item(1).AppendChild($template.CreateTextNode($env:TOAST_MSG)) > $null
+                    $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+                    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("420vision").Show($toast)
+                "#;
+                let _ = Command::new("powershell")
+                    .args(["-WindowStyle", "Hidden", "-Command", script])
+                    .env("TOAST_TITLE", &title_owned)
+                    .env("TOAST_MSG", &message_owned)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+        });
+    }
+
+    pub fn notify_stare_warning() {
+        Self::send(
+            "👁️ Kedip Yuk! (Dry Eye Alert)",
+            "Kamu sudah >8 detik belum kedip. Istirahatkan kelopak matamu sejenak.",
+        );
+    }
+
+    pub fn notify_break_time() {
+        Self::send(
+            "✨ 20-20-20-20 Break Time! ✨",
+            "20 Menit layar tercapai! Tatap objek sejauh 20 kaki (6m) selama 20 detik & kedip 20x.",
+        );
+    }
+}
