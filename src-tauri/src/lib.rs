@@ -2,6 +2,7 @@ pub mod capture;
 pub mod vision;
 pub mod detector;
 pub mod timer;
+pub mod storage;
 
 use std::sync::Mutex;
 use tauri::{
