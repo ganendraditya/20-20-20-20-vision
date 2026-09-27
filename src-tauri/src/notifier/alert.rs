@@ -31,8 +31,7 @@ impl Notifier {
 
             #[cfg(target_os = "windows")]
             {
-                // Native Windows Action Center toast via PowerShell using environment variables
-                // (Safest injection-proof approach: variables are passed via OS environment block, avoiding CLI argument parser)
+                // Native Windows Action Center toast via PowerShell using environment variables & CREATE_NO_WINDOW
                 let script = r#"
                     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
                     $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
@@ -40,15 +39,27 @@ impl Notifier {
                     $textNodes.Item(0).AppendChild($template.CreateTextNode($env:TOAST_TITLE)) > $null
                     $textNodes.Item(1).AppendChild($template.CreateTextNode($env:TOAST_MSG)) > $null
                     $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-                    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("420vision").Show($toast)
+                    $appId = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
+                    try {
+                        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("com.ganendraditya.vision420").Show($toast)
+                    } catch {
+                        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+                    }
                 "#;
-                let _ = Command::new("powershell")
-                    .args(["-WindowStyle", "Hidden", "-Command", script])
+                let mut cmd = Command::new("powershell");
+                cmd.args(["-WindowStyle", "Hidden", "-Command", script])
                     .env("TOAST_TITLE", &title_owned)
                     .env("TOAST_MSG", &message_owned)
                     .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+                    .stderr(std::process::Stdio::null());
+
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW to eliminate black console flash
+                }
+
+                let _ = cmd.status();
             }
         });
     }
