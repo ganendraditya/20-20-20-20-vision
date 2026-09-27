@@ -30,7 +30,8 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// Return standard OS configuration directory path
-    /// macOS/Linux: ~/.config/420vision/config.json
+    /// Linux: ~/.config/420vision/config.json
+    /// macOS: ~/Library/Application Support/420vision/config.json
     /// Windows: %APPDATA%\420vision\config.json
     pub fn get_config_dir() -> PathBuf {
         if let Some(config_base) = dirs::config_dir() {
@@ -52,13 +53,18 @@ impl AppConfig {
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Self {
         let path = path.as_ref();
         if path.exists() {
-            if let Ok(mut file) = File::open(path) {
-                let mut contents = String::new();
-                if file.read_to_string(&mut contents).is_ok() {
-                    if let Ok(config) = serde_json::from_str::<AppConfig>(&contents) {
-                        return config;
+            match File::open(path) {
+                Ok(mut file) => {
+                    let mut contents = String::new();
+                    match file.read_to_string(&mut contents) {
+                        Ok(_) => match serde_json::from_str::<AppConfig>(&contents) {
+                            Ok(config) => return config,
+                            Err(e) => eprintln!("[420vision] Warning: corrupt config.json: {}", e),
+                        },
+                        Err(e) => eprintln!("[420vision] Warning: could not read config.json: {}", e),
                     }
                 }
+                Err(e) => eprintln!("[420vision] Warning: could not open config.json: {}", e),
             }
         }
         Self::default()

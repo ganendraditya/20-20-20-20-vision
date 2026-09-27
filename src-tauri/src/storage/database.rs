@@ -45,8 +45,7 @@ impl AnalyticsDb {
                 breaks_completed INTEGER NOT NULL,
                 breaks_skipped INTEGER NOT NULL,
                 active_screen_seconds REAL NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_daily_date ON daily_analytics(date);",
+            );",
         )?;
         Ok(())
     }
@@ -68,7 +67,10 @@ impl AnalyticsDb {
             "INSERT INTO daily_analytics (date, avg_bpm, total_blinks, breaks_completed, breaks_skipped, active_screen_seconds)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(date) DO UPDATE SET
-                avg_bpm = (?2 + avg_bpm) / 2.0,
+                avg_bpm = CASE 
+                    WHEN (active_screen_seconds + ?6) > 0.0 THEN ((total_blinks + ?3) * 60.0) / (active_screen_seconds + ?6)
+                    ELSE ?2
+                END,
                 total_blinks = total_blinks + ?3,
                 breaks_completed = breaks_completed + ?4,
                 breaks_skipped = breaks_skipped + ?5,
