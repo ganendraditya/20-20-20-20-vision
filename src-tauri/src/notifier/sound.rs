@@ -95,16 +95,17 @@ impl AudioPlayer {
 
         #[cfg(target_os = "windows")]
         {
-            // Windows native PlaySound API via powershell invoking script block with parameter binding
+            // Windows native PlaySound API via powershell with environment variable binding
+            // (Completely immune to path spaces or special character quoting bugs)
             use std::process::Command;
             use std::io::Write;
 
             if let Ok(mut temp) = tempfile::NamedTempFile::new() {
                 if temp.write_all(bytes).is_ok() {
                     let path = temp.path().to_string_lossy().to_string();
-                    let invoker = "& { param($p) (New-Object Media.SoundPlayer $p).PlaySync() } $args[0]";
                     let _ = Command::new("powershell")
-                        .args(["-WindowStyle", "Hidden", "-Command", invoker, &path])
+                        .args(["-WindowStyle", "Hidden", "-Command", "(New-Object Media.SoundPlayer $env:SOUND_PATH).PlaySync()"])
+                        .env("SOUND_PATH", &path)
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
                         .status();

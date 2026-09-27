@@ -31,20 +31,21 @@ impl Notifier {
 
             #[cfg(target_os = "windows")]
             {
-                // Native Windows Action Center toast via PowerShell invoking script block with $args
+                // Native Windows Action Center toast via PowerShell using environment variables
+                // (Safest injection-proof approach: variables are passed via OS environment block, avoiding CLI argument parser)
                 let script = r#"
-                    param($t, $m)
                     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
                     $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
                     $textNodes = $template.GetElementsByTagName("text")
-                    $textNodes.Item(0).AppendChild($template.CreateTextNode($t)) > $null
-                    $textNodes.Item(1).AppendChild($template.CreateTextNode($m)) > $null
+                    $textNodes.Item(0).AppendChild($template.CreateTextNode($env:TOAST_TITLE)) > $null
+                    $textNodes.Item(1).AppendChild($template.CreateTextNode($env:TOAST_MSG)) > $null
                     $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
                     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("420vision").Show($toast)
                 "#;
-                let command_invoker = format!("& {{ {} }} $args[0] $args[1]", script);
                 let _ = Command::new("powershell")
-                    .args(["-WindowStyle", "Hidden", "-Command", &command_invoker, &title_owned, &message_owned])
+                    .args(["-WindowStyle", "Hidden", "-Command", script])
+                    .env("TOAST_TITLE", &title_owned)
+                    .env("TOAST_MSG", &message_owned)
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .status();
