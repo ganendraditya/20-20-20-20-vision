@@ -32,12 +32,12 @@ impl EarCalculator {
         }
     }
 
-    /// Calculate Euclidean distance between two 3D landmarks
+    /// Calculate Euclidean distance between two landmarks on the 2D image plane
+    /// (MediaPipe Z axis is estimated relative depth with high jitter, canonical Soukupova & Cech 2016 uses 2D)
     pub fn distance(p1: &Landmark3D, p2: &Landmark3D) -> f32 {
         let dx = p1.x - p2.x;
         let dy = p1.y - p2.y;
-        let dz = p1.z - p2.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
+        (dx * dx + dy * dy).sqrt()
     }
 
     /// Compute Eye Aspect Ratio (EAR) for a single eye given corner & vertical landmark pairs
@@ -47,16 +47,15 @@ impl EarCalculator {
         v1_pair: (usize, usize),
         v2_pair: (usize, usize),
     ) -> f32 {
-        if landmarks.len() < 468 {
+        let (Some(p_h1), Some(p_h2)) = (landmarks.get(h_pair.0), landmarks.get(h_pair.1)) else {
             return 0.0;
-        }
-
-        let p_h1 = &landmarks[h_pair.0];
-        let p_h2 = &landmarks[h_pair.1];
-        let p_v1_top = &landmarks[v1_pair.0];
-        let p_v1_bot = &landmarks[v1_pair.1];
-        let p_v2_top = &landmarks[v2_pair.0];
-        let p_v2_bot = &landmarks[v2_pair.1];
+        };
+        let (Some(p_v1_top), Some(p_v1_bot)) = (landmarks.get(v1_pair.0), landmarks.get(v1_pair.1)) else {
+            return 0.0;
+        };
+        let (Some(p_v2_top), Some(p_v2_bot)) = (landmarks.get(v2_pair.0), landmarks.get(v2_pair.1)) else {
+            return 0.0;
+        };
 
         let dist_h = Self::distance(p_h1, p_h2);
         if dist_h <= 1e-6 {
@@ -106,6 +105,12 @@ impl EarCalculator {
 pub struct EyeCalibrator {
     open_samples: Vec<f32>,
     closed_samples: Vec<f32>,
+}
+
+impl Default for EyeCalibrator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EyeCalibrator {
