@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 interface AppStatus {
   is_running: boolean;
@@ -7,6 +8,18 @@ interface AppStatus {
   next_break_seconds: number;
   total_blinks_today: number;
   status_text: string;
+}
+
+interface CameraFrameDto {
+  width: number;
+  height: number;
+  is_face_detected: boolean;
+  left_ear: number;
+  right_ear: number;
+  avg_ear: number;
+  is_blinking: boolean;
+  total_blinks: number;
+  image_data_base64: string | null;
 }
 
 interface DailyCompliance {
@@ -24,6 +37,7 @@ window.addEventListener("DOMContentLoaded", () => {
   setupIPC();
   loadCameras();
   startStatusPoller();
+  listenToCameraFrames();
 });
 
 function setupTabs() {
@@ -42,10 +56,13 @@ function setupTabs() {
       const pane = document.getElementById(targetTab);
       if (pane) pane.classList.add("active");
 
-      // Reset sandbox counter if switching to Camera Test tab
+      // Reset sandbox counter and notify backend if switching to Camera Test tab
       if (targetTab === "tab-camera") {
         sandboxBlinks = 0;
         updateSandboxUI();
+        invoke("set_sandbox_viewing", { active: true }).catch(console.error);
+      } else {
+        invoke("set_sandbox_viewing", { active: false }).catch(console.error);
       }
 
       // Refresh stats if switching to Stats tab
@@ -59,6 +76,7 @@ function setupTabs() {
   const closeBtn = document.getElementById("btn-close");
   closeBtn?.addEventListener("click", async () => {
     try {
+      await invoke("set_sandbox_viewing", { active: false });
       await invoke("hide_window");
     } catch (e) {
       console.error("Failed to hide window:", e);
@@ -180,6 +198,20 @@ async function loadStats() {
     }
   } catch (e) {
     console.error("Failed to load compliance stats:", e);
+  }
+}
+
+async function listenToCameraFrames() {
+  try {
+    await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
+      const data = event.payload;
+      if (data.is_blinking) {
+        sandboxBlinks += 1;
+        updateSandboxUI();
+      }
+    });
+  } catch (e) {
+    console.error("Failed to register camera frame listener:", e);
   }
 }
 

@@ -26,6 +26,7 @@ pub struct AppStatus {
 pub struct AppState {
     pub status: AppStatus,
     pub selected_camera_index: usize,
+    pub is_sandbox_viewing: bool,
 }
 
 impl Default for AppState {
@@ -40,6 +41,7 @@ impl Default for AppState {
                 status_text: "Monitoring Active".to_string(),
             },
             selected_camera_index: 0,
+            is_sandbox_viewing: false,
         }
     }
 }
@@ -64,6 +66,13 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
         state.status.status_text = "Paused".to_string();
     }
     state.status.is_running
+}
+
+#[tauri::command]
+fn set_sandbox_viewing(active: bool, state: State<'_, Mutex<AppState>>) -> bool {
+    let mut state = state.lock().unwrap();
+    state.is_sandbox_viewing = active;
+    true
 }
 
 #[tauri::command]
@@ -213,7 +222,8 @@ pub fn run() {
             start_calibration,
             get_stats,
             hide_window,
-            quit_app
+            quit_app,
+            set_sandbox_viewing
         ])
         .run(tauri::generate_context!())
         .expect("error while running 420vision application");
