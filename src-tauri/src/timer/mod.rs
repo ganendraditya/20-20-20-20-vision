@@ -46,8 +46,7 @@ impl PresenceTimer {
 
         if is_face_present {
             // User is present
-            let mut reset_occurred = false;
-            if let Some(away_start) = self.away_start_instant.take() {
+            let was_away = if let Some(away_start) = self.away_start_instant.take() {
                 let away_duration = now
                     .checked_duration_since(away_start)
                     .map(|d| d.as_secs_f32())
@@ -57,11 +56,15 @@ impl PresenceTimer {
                     // User was absent for >= 5 minutes: eyes rested naturally -> auto reset 20-min cycle
                     self.active_screen_seconds = 0.0;
                     self.break_triggered = false;
-                    reset_occurred = true;
                 }
-            }
+                true
+            } else {
+                false
+            };
 
-            if !reset_occurred {
+            // Only add dt if user was already present on the previous update tick
+            // (prevents counting throttled away duration as screen time)
+            if !was_away {
                 self.active_screen_seconds += dt;
             }
         } else {
