@@ -88,6 +88,8 @@ fn test_prolonged_eye_rest_pauses_stare_warning() {
     // Eyes reopen
     now += Duration::from_millis(100);
     let event_reopen = detector.update(&open_eyes, now);
+    assert!(!event_reopen.is_blink, "Prolonged rest reopening must not count as a blink");
+    assert_eq!(event_reopen.total_blinks, 0);
     assert!(!event_reopen.stare_warning);
     assert_eq!(event_reopen.stare_duration_secs, 0.0);
 }
