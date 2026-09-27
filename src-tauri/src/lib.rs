@@ -134,11 +134,11 @@ pub fn run() {
                 &quit_item,
             ])?;
 
-            // Build Tray Icon
-            let _tray = TrayIconBuilder::new()
+            // Build Tray Icon linking to the one configured in tauri.conf.json
+            let _tray = TrayIconBuilder::with_id("main-tray")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
-                .tooltip("420vision: 20-20-20-20 Eye Assistant")
+                .tooltip("420vision: 20-20-20-20 Vision Assistant")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "toggle_window" => {
@@ -155,6 +155,11 @@ pub fn run() {
                             let state = app.state::<Mutex<AppState>>();
                             let mut state = state.lock().unwrap();
                             state.status.is_running = !state.status.is_running;
+                            if state.status.is_running {
+                                state.status.status_text = "Monitoring Active".to_string();
+                            } else {
+                                state.status.status_text = "Paused".to_string();
+                            }
                         }
                         "quit" => {
                             app.exit(0);
