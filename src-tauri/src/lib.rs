@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod vision;
+pub mod detector;
 
 use std::sync::Mutex;
 use tauri::{
