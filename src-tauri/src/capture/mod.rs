@@ -90,19 +90,20 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 (state.status.is_running, state.selected_camera_index)
             };
 
-            // Handle Camera Selection Changes or Hotplugs
-            if current_cam_index != selected_index {
+            if !is_running {
+                // If user toggled OFF via master switch, yield camera completely
+                cam_manager.release_camera();
+                current_cam_index = usize::MAX;
+                thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
+
+            // Handle Camera Selection Changes, initial start, or resume
+            if current_cam_index != selected_index || cam_manager.camera.is_none() {
                 cam_manager.release_camera();
                 if cam_manager.init_camera(selected_index).is_ok() {
                     current_cam_index = selected_index;
                 }
-            }
-
-            if !is_running {
-                // If user toggled OFF via master switch, yield camera completely
-                cam_manager.release_camera();
-                thread::sleep(Duration::from_millis(1000));
-                continue;
             }
 
             // If camera was yielded due to conflict (Zoom/Meet), try to re-acquire gently
