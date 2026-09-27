@@ -33,7 +33,10 @@ impl FaceMeshEngine {
     pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize) -> Array4<f32> {
         let mut input_tensor = Array4::<f32>::zeros((1, 192, 192, 3));
         
-        // Simple bilinear or nearest neighbor scaling to 192x192
+        if width == 0 || height == 0 {
+            return input_tensor;
+        }
+
         let x_ratio = width as f32 / 192.0;
         let y_ratio = height as f32 / 192.0;
 
@@ -44,7 +47,7 @@ impl FaceMeshEngine {
                 let src_idx = (src_y * width + src_x) * 3;
 
                 if src_idx + 2 < rgb_data.len() {
-                    // Normalize [0..255] to [0.0..1.0] (or [-1.0..1.0] depending on model spec)
+                    // Normalize [0..255] to [0.0..1.0]
                     input_tensor[[0, y, x, 0]] = rgb_data[src_idx] as f32 / 255.0;
                     input_tensor[[0, y, x, 1]] = rgb_data[src_idx + 1] as f32 / 255.0;
                     input_tensor[[0, y, x, 2]] = rgb_data[src_idx + 2] as f32 / 255.0;
@@ -69,17 +72,22 @@ impl FaceMeshEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("Failed to extract output tensor: {}", e))?;
 
+        if slice.len() < 468 * 3 {
+            return Err(format!(
+                "Output tensor size mismatch: expected at least 1404 elements, got {}",
+                slice.len()
+            ));
+        }
+
         let mut landmarks = Vec::with_capacity(468);
 
         for i in 0..468 {
             let offset = i * 3;
-            if offset + 2 < slice.len() {
-                landmarks.push(Landmark3D {
-                    x: slice[offset] / 192.0,      // Normalized [0.0..1.0]
-                    y: slice[offset + 1] / 192.0,  // Normalized [0.0..1.0]
-                    z: slice[offset + 2] / 192.0,  // Relative depth
-                });
-            }
+            landmarks.push(Landmark3D {
+                x: slice[offset] / 192.0,      // Normalized [0.0..1.0]
+                y: slice[offset + 1] / 192.0,  // Normalized [0.0..1.0]
+                z: slice[offset + 2] / 192.0,  // Relative depth
+            });
         }
 
         Ok(landmarks)
