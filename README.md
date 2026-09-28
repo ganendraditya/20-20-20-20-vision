@@ -7,13 +7,32 @@
 
 ---
 
-## The "4x20" Philosophy
+## Background & Clinical Context
 
-The 20-20-20-20 vision rule for digital eye strain:
-1. **20 Minutes:** Screen time accumulated only when actively facing the display.
-2. **20 Feet (6m):** Look into the distance to relax ciliary focal muscles.
-3. **20 Seconds:** Dedicated break duration.
-4. **20 Blinks:** Conscious full blinks to rebuild the lipid layer and soothe dry eyes.
+### The Standard 20-20-20 Rule
+Originally developed by California optometrist **Dr. Jeffrey Anshel** and endorsed by both the **American Optometric Association (AOA)** and the **American Academy of Ophthalmology (AAO)**, the **20-20-20 rule** is an ergonomic guideline to alleviate *Computer Vision Syndrome (CVS)* and *Digital Eye Strain (DES)*:
+> **Every 20 minutes, look at an object at least 20 feet (~6 meters) away for at least 20 seconds.**
+
+- **Why 20 feet?** At roughly 6 meters, optical infinity is achieved—allowing the eye's *ciliary muscles* (which constantly contract to maintain near-focus on digital screens) to completely relax.
+- **Why 20 seconds?** It takes approximately 20 seconds for the ciliary muscles to disengage and for the tear film to restabilize.
+
+### The 4th "20": Why 420vision?
+While the medical rule stops at three 20s, prolonged digital focus causes another severe issue: **blink rate reduction**. Studies show people blink **up to 60% less frequently** when staring at digital monitors (dropping from a healthy 15–20 blinks/min down to 4–7 blinks/min), leading to rapid tear film evaporation and dry eye disease.
+
+The name **420vision** (20-20-20-20) adds a purposeful fourth component:
+1. **20 Minutes:** Screen presence accumulated via webcam (pauses when away).
+2. **20 Feet (6m):** Distance to look into to relax the ciliary focal muscles.
+3. **20 Seconds:** Dedicated resting duration.
+4. **20 Blinks:** 20 conscious, deliberate blinks during the break—*plus a tongue-in-cheek reference to Tyler, The Creator's "20/20, 20/20 vision" lyric*—to replenish the corneal lipid layer and rehydrate dry eyes.
+
+---
+
+## References & Further Reading
+
+1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
+2. **American Academy of Ophthalmology (AAO):** [Computers, Digital Devices and Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
+3. **Soukupová, T., & Čech, J. (2016):** *Real-Time Eye Blink Detection using Facial Landmarks.* Center for Machine Perception, Czech Technical University.
+4. **Rosenfield, M. (2011):** *Computer vision syndrome: a review of ocular causes and potential treatments.* Ophthalmic and Physiological Optics, 31(5), 502–515.
 
 ---
 
