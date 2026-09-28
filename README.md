@@ -9,7 +9,7 @@
 
 ## The "4x20" Philosophy
 
-Inspired by the classic 20-20-20 rule + Tyler, The Creator's *"20/20, 20/20 vision"* pun:
+The 20-20-20-20 vision rule for digital eye strain:
 1. **20 Minutes:** Screen time accumulated only when actively facing the display.
 2. **20 Feet (6m):** Look into the distance to relax ciliary focal muscles.
 3. **20 Seconds:** Dedicated break duration.
@@ -92,4 +92,4 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## License
 
-MIT © [Ganendra Aditya](https://github.com/ganendraditya)
+MIT

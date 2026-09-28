@@ -8,7 +8,7 @@
 
 ## 1. Product Philosophy & The "4x20" Rule
 
-Inspired by the classic ophthalmology rule + Tyler, The Creator's *"20/20, 20/20 vision"* pun:
+The 20-20-20-20 vision rule for digital eye strain:
 1. **20 Minutes:** Screen time accumulated only when the user is actively in front of the screen.
 2. **20 Feet (6 Meters):** Distance to look away to relax the ciliary eye muscles.
 3. **20 Seconds:** Minimum rest break duration.
