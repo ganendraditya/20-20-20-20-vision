@@ -10,25 +10,23 @@
 ## The 20-20-20 Rule (and the 4th 20)
 
 ### The Real Medical Rule
-Endorsed by the **American Optometric Association (AOA)** and **American Academy of Ophthalmology (AAO)** to combat digital eye strain:
-> **Every 20 minutes, look at an object 20 feet away for 20 seconds.**
+Endorsed explicitly by the **American Optometric Association (AOA)** to alleviate Computer Vision Syndrome (digital eye strain):
+> **Every 20 minutes, take a 20-second break to view something 20 feet (~6 meters) away.**
 
-- **20 Minutes:** Active screen time.
-- **20 Feet (6m):** Optical infinity to relax ciliary eye muscles.
-- **20 Seconds:** Minimum rest period.
+- **20 Minutes:** Screen time interval before eye fatigue sets in.
+- **20 Feet (6m):** Optical infinity distance that allows the eye's ciliary focusing muscles to fully relax.
+- **20 Seconds:** Minimum time required for the muscles to disengage.
 
 ### The 4th "20"
-Medically, the rule is just 20-20-20. 
+Medically, the rule is strictly 20-20-20. 
 
-The 4th 20 (*20 conscious blinks*) is purely made up because I wanted to name this project **20-20-20-20 vision** after Tyler, The Creator's *"See You Again"* lyric—and because 4 × 20 = **420**. 
+The 4th 20 (*20 conscious blinks*) is purely made up because I wanted to name this project **20-20-20-20 vision** after Tyler, The Creator's *"See You Again"* lyric—and because 4 × 20 = **420**.
 
 ---
 
 ## References
 
 1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
-2. **American Academy of Ophthalmology (AAO):** [Computers, Digital Devices and Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
-3. **Soukupová, T., & Čech, J. (2016):** *Real-Time Eye Blink Detection using Facial Landmarks.* Center for Machine Perception, Czech Technical University.
 
 ---
 
