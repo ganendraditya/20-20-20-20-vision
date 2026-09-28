@@ -81,7 +81,7 @@ case "${SHELL:-}" in
 esac
 
 if [ -n "$SHELL_CONFIG" ] && [ -f "$SHELL_CONFIG" ]; then
-    if ! grep -q 'export PATH="\$HOME/.local/bin:\$PATH"' "$SHELL_CONFIG" 2>/dev/null; then
+    if ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$SHELL_CONFIG" 2>/dev/null; then
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_CONFIG"
     fi
 fi
@@ -108,9 +108,9 @@ cat <<EOF > "${PLIST_FILE}"
 </plist>
 EOF
 
-# Launch daemon immediately
-echo "👁️ Starting 420vision daemon in Menu Bar..."
-"${INSTALL_DIR}/420vision" & disown || true
+# Load and start LaunchAgent (RunAtLoad=true automatically starts the daemon in Menu Bar)
+launchctl unload "${PLIST_FILE}" 2>/dev/null || true
+launchctl load -w "${PLIST_FILE}" 2>/dev/null || true
 
 echo ""
 echo "=========================================================="

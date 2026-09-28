@@ -60,7 +60,10 @@ $CmdWrapper = Join-Path $BinDir "420vision.cmd"
 
 # Add bin directory to User PATH if not present
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -notlike "*$BinDir*") {
+if ([string]::IsNullOrEmpty($UserPath)) {
+    [Environment]::SetEnvironmentVariable("Path", $BinDir, "User")
+    Write-Host "🔗 Added $BinDir to User PATH." -ForegroundColor Green
+} elseif ($UserPath -notlike "*$BinDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
     Write-Host "🔗 Added $BinDir to User PATH." -ForegroundColor Green
 }
