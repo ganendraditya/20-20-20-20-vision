@@ -1,0 +1,46 @@
+name: Continuous Integration & Verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test & Build Check
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Frontend Build Check
+        run: npm run build
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Download FaceMesh ONNX Model
+        run: |
+          mkdir -p models
+          if [ ! -f models/facemesh.onnx ]; then
+            curl -fL -o models/facemesh.onnx "https://raw.githubusercontent.com/iperov/DeepFaceLive/fc7b787bda2b8c186e142c52857458eea3a935ed/modelhub/onnx/FaceMesh/FaceMesh.onnx"
+          fi
+
+      - name: Run Rust Test Suite
+        run: cargo test --manifest-path src-tauri/Cargo.toml
