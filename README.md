@@ -7,27 +7,20 @@
 
 ---
 
-## Background: The 20-20-20 Rule & The "4th 20" Lore
+## The 20-20-20 Rule (and the 4th 20)
 
-### The Legitimate 20-20-20 Rule
-If you spend your life in front of a terminal, you've probably heard eye doctors (and TikTok optometrists) preach the **20-20-20 rule**:
-> **Every 20 minutes, look at an object 20 feet (~6 meters) away for 20 seconds.**
+### The Real Medical Rule
+Endorsed by the **American Optometric Association (AOA)** and **American Academy of Ophthalmology (AAO)** to combat digital eye strain:
+> **Every 20 minutes, look at an object 20 feet away for 20 seconds.**
 
-Devised by California optometrist **Dr. Jeffrey Anshel** and recognized by organizations like the **American Optometric Association (AOA)**, the science here is real:
-- **20 feet:** Gives your eye's overworked *ciliary muscles* a break by shifting into optical infinity (distance vision).
-- **20 seconds:** The time needed for those focusing muscles to actually disengage and reset.
+- **20 Minutes:** Active screen time.
+- **20 Feet (6m):** Optical infinity to relax ciliary eye muscles.
+- **20 Seconds:** Minimum rest period.
 
-### ...And The 4th "20" (The Confession)
-Let's be 100% honest here: **there is no 4th 20 in medical science.**
+### The 4th "20"
+Medically, the rule is just 20-20-20. 
 
-As a chronic dry eye sufferer, I desperately needed a reminder to not just look away, but to actually **blink** (screen glare makes humans forget to blink, dropping our blink rate by up to 60%). 
-
-So why **20-20-20-20**?
-1. I was listening to Tyler, The Creator's *"See You Again"* (*"20/20, 20/20 vision — cupid hit me with precision"*).
-2. Four 20s together make **420**.
-3. It was too funny of a pun and project name to pass up.
-
-So yes, the **4th 20 (20 conscious blinks during break)** is completely made up by me to fit the name and justify calling this app **420vision**. But hey—your dry eyes will thank you for those extra blinks anyway.
+The 4th 20 (*20 conscious blinks*) is purely made up because I wanted to name this project **20-20-20-20 vision** after Tyler, The Creator's *"See You Again"* lyric—and because 4 × 20 = **420**. 
 
 ---
 
@@ -36,7 +29,6 @@ So yes, the **4th 20 (20 conscious blinks during break)** is completely made up 
 1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
 2. **American Academy of Ophthalmology (AAO):** [Computers, Digital Devices and Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
 3. **Soukupová, T., & Čech, J. (2016):** *Real-Time Eye Blink Detection using Facial Landmarks.* Center for Machine Perception, Czech Technical University.
-4. **Tyler, The Creator (2017):** *See You Again (feat. Kali Uchis).* Flower Boy, Columbia Records (the unofficial scientific inspiration for the 4th 20).
 
 ---
 
