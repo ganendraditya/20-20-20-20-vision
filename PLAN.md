@@ -2,7 +2,7 @@
 
 > **Codename:** 420vision (20-20-20-20 Vision)  
 > **Repository:** `ganendraditya/20-20-20-20-vision`  
-> **Core Mission:** An ultra-lightweight, high-performance Menu Bar / System Tray assistant for dry eye sufferers using native computer vision and ONNX runtime.
+> **Core Mission:** An ultra-lightweight, high-performance Menu Bar / System Tray reminder & assistant for dry eye sufferers using native computer vision and ONNX runtime.
 
 ---
 

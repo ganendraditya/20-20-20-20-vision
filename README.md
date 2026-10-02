@@ -1,6 +1,6 @@
 # 420vision (20-20-20-20 Vision)
 
-> An ultra-lightweight, native Menu Bar / System Tray assistant for dry eye sufferers using on-device computer vision.
+> An ultra-lightweight, native Menu Bar / System Tray reminder & assistant for dry eye sufferers using on-device computer vision.
 
 [![CI & Verification](https://github.com/ganendraditya/20-20-20-20-vision/actions/workflows/ci.yml/badge.svg)](https://github.com/ganendraditya/20-20-20-20-vision/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
