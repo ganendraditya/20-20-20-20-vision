@@ -14,9 +14,7 @@
 - **20 Seconds:** Minimum time required for the muscles to disengage.
 - **20 Blinks:** Ideal baseline blink rate per minute to keep the ocular surface lubricated.
 
-The actual medical guideline endorsed by the **American Optometric Association (AOA)** is strictly the **20-20-20 rule**: take a 20-second break every 20 minutes to look at something 20 feet away. 
-
-The extra 20 (*20 blinks per minute*) is admittedly made up for this project—inspired by a song lyric repeating "20/20, 20/20 vision", and because four 20s neatly make **420**. Staring at monitors reduces natural blink frequency drastically anyway, so tracking that fourth 20 serves a real purpose for dry eye sufferers.
+The actual medical guideline endorsed by the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The other 20 is just made up for this project, inspired by a song lyric and to round it out to **420**.
 
 ---
 
