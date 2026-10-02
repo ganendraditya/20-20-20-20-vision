@@ -14,7 +14,7 @@
 - **20 Seconds:** Minimum time required for the muscles to disengage.
 - **20 Blinks:** Conscious blinks target to restore the tear film.
 
-The legitimate medical guideline from the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The fourth 20 is borrowed from normal human resting blink rate (~15–20 blinks/min per the [AAO](https://www.aao.org/eye-health/tips-prevention/computer-usage) and [Bentivoglio et al.](https://pubmed.ncbi.nlm.nih.gov/9399231/)), which drops by up to 60% while staring at screens—and conveniently rounded to complete the **420** pun.
+The legitimate medical guideline from the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The fourth 20 is borrowed from normal human resting blink rate (~15–20 blinks/min per the [AAO](https://www.aao.org/eye-health/tips-prevention/computer-usage) and [Bentivoglio et al.](https://pubmed.ncbi.nlm.nih.gov/9399231/)), which drops by up to 60% while staring at screens.
 
 ---
 
@@ -28,7 +28,7 @@ The legitimate medical guideline from the **American Optometric Association (AOA
 
 ## Quick Install (Terminal)
 
-### macOS (Apple Silicon & Intel)
+### macOS
 Run in your terminal:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ganendraditya/20-20-20-20-vision/main/install.sh | bash
