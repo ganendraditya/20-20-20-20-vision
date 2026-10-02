@@ -7,20 +7,16 @@
 
 ---
 
-## The 20-20-20 Rule (and the 4th 20)
-
-### The Real Medical Rule
-Endorsed explicitly by the **American Optometric Association (AOA)** to alleviate Computer Vision Syndrome (digital eye strain):
-> **Every 20 minutes, take a 20-second break to view something 20 feet (~6 meters) away.**
+## The 20-20-20-20 Rule
 
 - **20 Minutes:** Screen time interval before eye fatigue sets in.
 - **20 Feet (6m):** Optical infinity distance that allows the eye's ciliary focusing muscles to fully relax.
 - **20 Seconds:** Minimum time required for the muscles to disengage.
+- **20 Blinks:** Ideal baseline blink rate per minute to keep the ocular surface lubricated.
 
-### The 4th "20"
-Medically, the rule is strictly 20-20-20. 
+The actual medical guideline endorsed by the **American Optometric Association (AOA)** is strictly the **20-20-20 rule**: take a 20-second break every 20 minutes to look at something 20 feet away. 
 
-The 4th 20 (*20 conscious blinks*) is purely made up because I wanted to name this project **20-20-20-20 vision** after Tyler, The Creator's *"See You Again"* lyric—and because 4 × 20 = **420**.
+The extra 20 (*20 blinks per minute*) is admittedly made up for this project—inspired by a song lyric repeating "20/20, 20/20 vision", and because four 20s neatly make **420**. Staring at monitors reduces natural blink frequency drastically anyway, so tracking that fourth 20 serves a real purpose for dry eye sufferers.
 
 ---
 
