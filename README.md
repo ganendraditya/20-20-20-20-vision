@@ -12,15 +12,17 @@
 - **20 Minutes:** Screen time interval before eye fatigue sets in.
 - **20 Feet (6m):** Optical infinity distance that allows the eye's ciliary focusing muscles to fully relax.
 - **20 Seconds:** Minimum time required for the muscles to disengage.
-- **20 Blinks:** Ideal baseline blink rate per minute to keep the ocular surface lubricated.
+- **20 Blinks:** Conscious blinks target to restore the tear film.
 
-The actual medical guideline endorsed by the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The other 20 is just made up for this project, inspired by a song lyric and to round it out to **420**.
+The legitimate medical guideline from the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The fourth 20 is borrowed from normal human resting blink rate (~15–20 blinks/min per the [AAO](https://www.aao.org/eye-health/tips-prevention/computer-usage) and [Bentivoglio et al.](https://pubmed.ncbi.nlm.nih.gov/9399231/)), which drops by up to 60% while staring at screens—and conveniently rounded to complete the **420** pun.
 
 ---
 
 ## References
 
 1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
+2. **American Academy of Ophthalmology (AAO):** [Blink Rate Reduction in Digital Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
+3. **Bentivoglio et al. (PubMed):** [Analysis of Blink Rate Patterns in Normal Subjects](https://pubmed.ncbi.nlm.nih.gov/9399231/)
 
 ---
 
