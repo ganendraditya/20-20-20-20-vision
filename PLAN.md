@@ -25,7 +25,7 @@ The 20-20-20-20 vision rule for digital eye strain:
 * **CPU Usage:** **< 2–3%** (10–15 FPS active tracking, auto-throttled to 2 FPS when idle/away).
 * **Privacy:** 100% on-device local processing; zero cloud transmission, zero video saved to disk.
 
-### B. Distribution & UX (Cloudflare 1.1.1.1 Model)
+### B. Distribution & UX (Tray Resident Model)
 * **Single-Line Terminal Installation:**
   * **macOS / Linux:**
     ```bash
@@ -40,7 +40,7 @@ The 20-20-20-20 vision rule for digital eye strain:
 * **Menu Bar / System Tray Resident:**
   * Once installed via terminal, the terminal is closed and never needed again.
   * The app lives permanently in the macOS Menu Bar and Windows System Tray.
-  * Clicking the icon toggles a clean popover window (Cloudflare 1.1.1.1 style).
+  * Clicking the icon toggles a clean popover window.
 
 ---
 

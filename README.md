@@ -71,7 +71,7 @@ irm https://raw.githubusercontent.com/ganendraditya/20-20-20-20-vision/main/unin
 - **Vision Inference:** Quantized MediaPipe FaceMesh running on ONNX Runtime (`ort`) with hardware acceleration (DirectML / CoreML / CPU).
 - **Mathematical EAR:** Soukupová & Čech (2016) formula with Exponential Moving Average (EMA) smoothing to eliminate glasses glare jitter.
 - **Strict Always-Yield Etiquette:** Never monopolizes the webcam; instantly yields when Zoom, Meet, Teams, or FaceTime requests the camera.
-- **Cloudflare 1.1.1.1-Style UI:** Native OS webview with 4 tabs:
+- **Minimalist Tray Popover UI:** Native OS webview with 4 tabs:
   1. **Home:** Big master toggle, live BPM, and 20-min countdown.
   2. **Camera Test:** PhotoBooth sandbox with isolated validation counter.
   3. **Stats:** Local SQLite (`analytics.db`) compliance trends.
