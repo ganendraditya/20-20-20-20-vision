@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::detector::BlinkDetector;
 use crate::timer::PresenceTimer;
-use crate::vision::{BlazeFaceEngine, FaceMeshEngine};
+use crate::vision::{FaceDetectorEngine, FaceMeshEngine};
 use crate::AppState;
 
 pub struct CameraManager {
@@ -107,16 +107,16 @@ fn get_facemesh_model_path() -> PathBuf {
     local
 }
 
-/// Locate or fallback BlazeFace detector model path
-fn get_blazeface_model_path() -> PathBuf {
+/// Locate or fallback FaceDetector model path
+fn get_facedetector_model_path() -> PathBuf {
     // 1. Check local models directory relative to current working directory
-    let local = PathBuf::from("models/blazeface.onnx");
+    let local = PathBuf::from("models/ultraface.onnx");
     if local.exists() {
         return local;
     }
     // 2. Check installed bundle directory
     if let Some(share) = dirs::data_dir() {
-        let installed = share.join("420vision/models/blazeface.onnx");
+        let installed = share.join("420vision/models/ultraface.onnx");
         if installed.exists() {
             return installed;
         }
@@ -143,15 +143,15 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
         };
 
-        // Initialize BlazeFace detector
-        let blaze_path = get_blazeface_model_path();
-        let mut face_detector = match BlazeFaceEngine::new(&blaze_path) {
+        // Initialize UltraFace detector
+        let detector_path = get_facedetector_model_path();
+        let mut face_detector = match FaceDetectorEngine::new(&detector_path) {
             Ok(detector) => {
-                println!("[420vision::vision] ✅ Loaded BlazeFace detector from {:?}", blaze_path);
+                println!("[420vision::vision] ✅ Loaded UltraFace detector from {:?}", detector_path);
                 Some(detector)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] ⚠️ Could not load BlazeFace detector ({:?}): {}", blaze_path, e);
+                eprintln!("[420vision::vision] ⚠️ Could not load UltraFace detector ({:?}): {}", detector_path, e);
                 None
             }
         };
@@ -227,13 +227,13 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Gatekeeper: Verify facial presence using BlazeFace detector
+                            // Gatekeeper: Verify facial presence using UltraFace detector
                             let face_present = if let Some(detector) = &mut face_detector {
-                                let blaze_input = detector.preprocess(raw_bytes, w, h);
-                                match detector.detect_face(blaze_input) {
+                                let det_input = detector.preprocess(raw_bytes, w, h);
+                                match detector.detect_face(det_input) {
                                     Ok(detected) => detected,
                                     Err(e) => {
-                                        eprintln!("[420vision::vision] BlazeFace detection error: {}", e);
+                                        eprintln!("[420vision::vision] FaceDetector error: {}", e);
                                         true // Fail-safe: fallback to FaceMesh on detector error
                                     }
                                 }

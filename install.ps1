@@ -48,8 +48,8 @@ try {
         if (Test-Path "models\facemesh.onnx") {
             Copy-Item "models\facemesh.onnx" -Destination (Join-Path $InstallDir "models\facemesh.onnx") -Force
         }
-        if (Test-Path "models\blazeface.onnx") {
-            Copy-Item "models\blazeface.onnx" -Destination (Join-Path $InstallDir "models\blazeface.onnx") -Force
+        if (Test-Path "models\ultraface.onnx") {
+            Copy-Item "models\ultraface.onnx" -Destination (Join-Path $InstallDir "models\ultraface.onnx") -Force
         }
     } else {
         Write-Error "❌ Error: Could not download release archive and no local binary found."
