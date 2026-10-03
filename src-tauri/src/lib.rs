@@ -172,8 +172,13 @@ pub fn run() {
                 &quit_item,
             ])?;
 
-            // Build Tray Icon linking to the one configured in tauri.conf.json
+            // Build Tray Icon purely programmatically with explicit icon
+            let tray_icon_image = app.default_window_icon().cloned()
+                .unwrap_or_else(|| tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap());
+
             let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(tray_icon_image)
+                .icon_as_template(true)
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .tooltip("420vision: 20-20-20-20 Vision Assistant")
