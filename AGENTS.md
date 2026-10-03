@@ -17,7 +17,7 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ### 2. Dependency Inversion (DIP) & Program Against Abstractions
 - High-level orchestration must depend strictly on abstract contracts, not raw concrete internals.
-- UI layer only consumes versioned, typed DTOs (`AppStatus`, `DailyCompliance`) via explicit Tauri IPC commands.
+- UI layer only consumes versioned, typed DTOs (`AppStatus`, `DailyCompliance`, `CameraFrameDto`) via explicit Tauri IPC commands.
 - Never pass raw camera byte arrays or raw ONNX tensor outputs directly to UI or storage layers.
 
 ### 3. Encapsulate What Varies
@@ -32,7 +32,7 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ### 5. Single Responsibility (SRP) & Interface Segregation (ISP)
 - Every file, struct, and module has exactly one reason to change:
-  - `capture`: Hardware device stream lifecycle and buffer fetching.
+  - `capture`: Hardware device stream lifecycle, buffer fetching, and frame throttling.
   - `vision`: Tensor preprocessing, ONNX model loading, and 468 3D landmark extraction.
   - `detector`: Geometric EAR calculation, EMA smoothing, and temporal blink state machine.
   - `timer`: 20-minute screen presence accumulation and auto-reset logic.
@@ -58,7 +58,67 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ---
 
-## Part 2: Engineering Laws (Tailored for 420vision)
+## Part 2: Engineering Execution Guidelines (Karpathy)
+
+### 1. Think Before Coding
+- **State assumptions explicitly.** If uncertain, ask rather than guess.
+- **Surface tradeoffs.** If multiple approaches exist, compare them objectively.
+- **Push back when warranted.** If a simpler, more reliable approach exists, speak up.
+- **Stop when confused.** Never write speculative code based on ambiguous requirements.
+
+### 2. Simplicity First
+- **Minimum code that solves the problem.** Nothing speculative.
+- No features beyond what was requested.
+- No abstractions for single-use code.
+- If 200 lines could be 50, simplify it.
+- Ask: *"Would a senior engineer say this is overcomplicated?"* If yes, simplify.
+
+### 3. Surgical Changes
+- **Touch only what you must.** Clean up only your own mess.
+- Don't "improve" adjacent code, comments, or formatting unnecessarily.
+- Don't refactor things that aren't broken.
+- Every changed line must trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+- **Define success criteria. Loop until verified.**
+- Transform tasks into verifiable criteria (write test/smoke script, verify, commit).
+- Loop independently against tangible feedback before declaring done.
+
+---
+
+## Part 3: Agent Guardrails & Operating Rules (Anti-Sycophancy & Zero-Assumption)
+
+Derived from `koma` and `not-notebooklm`:
+
+### 1. Zero Hallucination & Anti-Sycophancy in Code Reviews
+- **Never claim a technical bug/error based on assumption or memory alone:** Verify before reporting. Always verify against concrete code, tests, or official documentation.
+- **No Sycophancy (Stand on Facts, Not Pleasing the User):**
+  - Do NOT reflexively fold, apologize, or claim "I was wrong" just because the user challenges a finding.
+  - Re-verify facts objectively: if a point is technically correct, stand by it with proof; if it is genuinely flawed, explain transparently why without subservient fluff.
+- **Differentiate facts from suggestions:** Distinguish hard breaking bugs from constructive styling/resilience suggestions.
+
+### 2. Don't Assume — Ask First (Communication & Clarification)
+- **Do not fill in the blanks with silent assumptions:** When requirements, implementation details, edge cases, user preferences, or error handling behaviors are ambiguous or unspecified, **STOP and ASK the user**.
+- **Proactive confirmation on gaps:** Highlight architectural trade-offs, edge cases, or breaking implications before writing code.
+- **Ask via the `question` tool:** Use the interactive question tool with clear options rather than guessing the user's intent.
+- **Confirm before irreversible actions:** Never delete files, change major architectural patterns, rewrite public contracts, or auto-merge without explicit confirmation.
+
+### 3. Execution, Timeouts & Heavy Workflows (CLI & Review)
+- **Harness Shell Timeout Vigilance:** The default harness shell timeout (120s / 2 minutes) is strictly inadequate for heavy tasks, reasoning models (Gemini Pro, Claude Sonnet/Opus), or large builds.
+  - When invoking `ocr review`, builds, or test suites, **explicitly pass `timeout: 300000` to `600000` (5–10 minutes)**. Never let default 120s cutoff waste tokens or interrupt reasoning mid-stream.
+  - For `ocr review`, pass `--effort low` and `--exclude 'src-tauri/tests/*,README.md'` to prevent unbounded roundtrips while keeping token usage bounded.
+  - Always direct heavy CLI outputs to a persistent file (`--output <path>`) so results are safely preserved.
+
+### 4. Strict Branch & Merge Protocol
+- **Every task must be developed on an isolated branch:** `feature/<task-name>` or `fix/<bug-name>`.
+- **STAY on the branch:** Never auto-merge or close issues until the user explicitly tests, reviews, and approves the change.
+- **Pre-Merge Open Code Review (OCR):**
+  - Run multi-model review (Claude Sonnet 4.6, Gemini 3.8 Flash, Gemini 3.1 Pro) before any PR merge.
+  - Resolve all critical, high, and actionable medium findings on the branch first.
+
+---
+
+## Part 4: Core Engineering Laws (Tailored for 420vision)
 
 ### 1. Gall's Law
 > *"A complex system that works is invariably found to have evolved from a simple system that worked. A complex system designed from scratch never works."*
@@ -110,29 +170,10 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ---
 
-## Part 3: UI & Craftsmanship Filter (Anti-Slop)
+## Part 5: UI & Craftsmanship Filter (Anti-Slop)
 
 Whenever building or refining the Tauri popover UI (HTML/Tailwind/TS):
 - **Purpose over decoration:** No random glows, generic pill badges, or template fluff without a clear functional reason.
 - **Resilience:** All states must be handled gracefully (`Monitoring Active`, `Paused (Away)`, `Camera Busy`, `No Camera Detected`).
 - **Conditional Resource Usage:** When the UI window is minimized or closed in the tray, frame rendering to the webview stops completely.
 - **Functional completeness:** No dead buttons, non-functional toggles, or dummy placeholders.
-
----
-
-## Part 4: Development & Review Protocol (The OCR Rule)
-
-To maintain absolute code quality and prevent regressions:
-
-1. **Dedicated Issue Branches:**
-   * Every task must be developed on an isolated branch: `feature/<task-name>` or `fix/<bug-name>`.
-   * Never commit unreviewed feature code directly to `main`.
-2. **Pre-Merge Open Code Review (OCR):**
-   * Before opening or merging any Pull Request, run:
-     ```bash
-     ocr review --audience agent --background "<task context>" --commit HEAD
-     ```
-   * All `critical`, `high`, and actionable `medium` severity findings must be resolved on the branch.
-   * Only merge to `main` when review passes cleanly with 0 actionable defects.
-3. **Automated Testing Gate:**
-   * Rust unit and integration tests (`cargo test`) must pass cleanly before any merge.
