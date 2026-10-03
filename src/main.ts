@@ -47,13 +47,19 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-window.addEventListener("DOMContentLoaded", () => {
+function init() {
   setupTabs();
   setupIPC();
   loadCameras();
   startStatusPoller();
   listenToCameraFrames();
-});
+}
+
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 
 function setupTabs() {
   const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
