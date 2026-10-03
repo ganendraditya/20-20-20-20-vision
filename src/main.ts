@@ -257,7 +257,8 @@ async function listenToCameraFrames() {
           ctx.lineWidth = 1.5;
 
           for (const pt of data.eye_landmarks) {
-            const px = pt.x * canvas.width;
+            // Apply explicit horizontal mirroring: (1 - pt.x) so it maps directly over mirrored video
+            const px = (1.0 - pt.x) * canvas.width;
             const py = pt.y * canvas.height;
             ctx.beginPath();
             ctx.arc(px, py, 2.5, 0, Math.PI * 2);

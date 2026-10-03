@@ -4,21 +4,25 @@ use vision420_lib::vision::Landmark3D;
 fn create_synthetic_landmarks(eye_height: f32, eye_width: f32) -> Vec<Landmark3D> {
     let mut landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
 
-    // Left eye setup (33, 133, 159, 145, 158, 153)
+    // Left eye setup (33, 133, 159, 145, 158, 153, 160, 144)
     landmarks[33] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
     landmarks[133] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
     landmarks[159] = Landmark3D { x: eye_width * 0.5, y: eye_height, z: 0.0 };
     landmarks[145] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
     landmarks[158] = Landmark3D { x: eye_width * 0.3, y: eye_height, z: 0.0 };
     landmarks[153] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[160] = Landmark3D { x: eye_width * 0.7, y: eye_height, z: 0.0 };
+    landmarks[144] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
-    // Right eye setup (362, 263, 386, 374, 387, 373)
+    // Right eye setup (362, 263, 386, 374, 387, 373, 385, 380)
     landmarks[362] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
     landmarks[263] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
     landmarks[386] = Landmark3D { x: eye_width * 0.5, y: eye_height, z: 0.0 };
     landmarks[374] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
     landmarks[387] = Landmark3D { x: eye_width * 0.3, y: eye_height, z: 0.0 };
     landmarks[373] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[385] = Landmark3D { x: eye_width * 0.7, y: eye_height, z: 0.0 };
+    landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
     landmarks
 }

@@ -15,10 +15,12 @@ use crate::vision::Landmark3D;
 pub const LEFT_EYE_H: (usize, usize) = (33, 133);
 pub const LEFT_EYE_V1: (usize, usize) = (159, 145);
 pub const LEFT_EYE_V2: (usize, usize) = (158, 153);
+pub const LEFT_EYE_V3: (usize, usize) = (160, 144);
 
 pub const RIGHT_EYE_H: (usize, usize) = (362, 263);
 pub const RIGHT_EYE_V1: (usize, usize) = (386, 374);
 pub const RIGHT_EYE_V2: (usize, usize) = (387, 373);
+pub const RIGHT_EYE_V3: (usize, usize) = (385, 380);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EarMetrics {
@@ -55,6 +57,7 @@ impl EarCalculator {
         h_pair: (usize, usize),
         v1_pair: (usize, usize),
         v2_pair: (usize, usize),
+        v3_pair: (usize, usize),
     ) -> f32 {
         let (Some(p_h1), Some(p_h2)) = (landmarks.get(h_pair.0), landmarks.get(h_pair.1)) else {
             return 0.0;
@@ -65,6 +68,9 @@ impl EarCalculator {
         let (Some(p_v2_top), Some(p_v2_bot)) = (landmarks.get(v2_pair.0), landmarks.get(v2_pair.1)) else {
             return 0.0;
         };
+        let (Some(p_v3_top), Some(p_v3_bot)) = (landmarks.get(v3_pair.0), landmarks.get(v3_pair.1)) else {
+            return 0.0;
+        };
 
         let dist_h = Self::distance(p_h1, p_h2);
         if dist_h <= 1e-6 {
@@ -73,9 +79,10 @@ impl EarCalculator {
 
         let dist_v1 = Self::distance(p_v1_top, p_v1_bot);
         let dist_v2 = Self::distance(p_v2_top, p_v2_bot);
+        let dist_v3 = Self::distance(p_v3_top, p_v3_bot);
 
-        // EAR formula: (||v1|| + ||v2||) / (2 * ||h||)
-        (dist_v1 + dist_v2) / (2.0 * dist_h)
+        // Standard 3-pair EAR formula: (||v1|| + ||v2|| + ||v3||) / (3.0 * ||h||)
+        (dist_v1 + dist_v2 + dist_v3) / (3.0 * dist_h)
     }
 
     /// Calculate left, right, average, and EMA-smoothed EAR from 468 facial landmarks
@@ -84,8 +91,8 @@ impl EarCalculator {
             return None;
         }
 
-        let left_ear = Self::compute_single_ear(landmarks, LEFT_EYE_H, LEFT_EYE_V1, LEFT_EYE_V2);
-        let right_ear = Self::compute_single_ear(landmarks, RIGHT_EYE_H, RIGHT_EYE_V1, RIGHT_EYE_V2);
+        let left_ear = Self::compute_single_ear(landmarks, LEFT_EYE_H, LEFT_EYE_V1, LEFT_EYE_V2, LEFT_EYE_V3);
+        let right_ear = Self::compute_single_ear(landmarks, RIGHT_EYE_H, RIGHT_EYE_V1, RIGHT_EYE_V2, RIGHT_EYE_V3);
         let avg_ear = (left_ear + right_ear) / 2.0;
 
         // Exponential Moving Average (EMA) smoothing:

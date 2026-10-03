@@ -248,16 +248,23 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                             // Conditional rendering: emit image stream ONLY when user views Camera Test tab
                             if is_sandbox_viewing {
-                                // Extract eye contour landmarks for visual overlay
+                                // Extract eye contour landmarks and map from crop-space to full-frame coordinates
                                 let eye_indices = [
-                                    33, 133, 159, 145, 158, 153, // Left eye
-                                    362, 263, 386, 374, 387, 373, // Right eye
+                                    33, 133, 159, 145, 158, 153, 160, 144, // Left eye
+                                    362, 263, 386, 374, 387, 373, 385, 380, // Right eye
                                 ];
-                                let mut eye_points = Vec::new();
+                                let mut eye_points = Vec::with_capacity(eye_indices.len());
                                 if let Some(last_lm) = &landmarks_cache {
+                                    let side = w.min(h);
+                                    let crop_x = (w - side) / 2;
+                                    let crop_y = (h - side) / 2;
+
                                     for &idx in &eye_indices {
                                         if let Some(lm) = last_lm.get(idx) {
-                                            eye_points.push(EyeLandmarkPoint { x: lm.x, y: lm.y });
+                                            // Remap [0..1] crop coordinate back to [0..1] full-frame space
+                                            let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                            let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                            eye_points.push(EyeLandmarkPoint { x: full_x, y: full_y });
                                         }
                                     }
                                 }
