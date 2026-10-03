@@ -27,19 +27,25 @@ pub struct EarMetrics {
     pub left_ear: f32,
     pub right_ear: f32,
     pub avg_ear: f32,
+    pub smoothed_left_ear: f32,
+    pub smoothed_right_ear: f32,
     pub smoothed_ear: f32,
 }
 
 pub struct EarCalculator {
-    alpha: f32, // Smoothing factor for EMA (e.g., 0.3 for responsiveness + glare stability)
-    last_smoothed_ear: Option<f32>,
+    alpha: f32, // Smoothing factor for EMA (e.g., 0.35 for responsiveness + noise rejection)
+    last_smoothed_left: Option<f32>,
+    last_smoothed_right: Option<f32>,
+    last_smoothed_avg: Option<f32>,
 }
 
 impl EarCalculator {
     pub fn new(alpha: f32) -> Self {
         Self {
             alpha: alpha.clamp(0.01, 1.0),
-            last_smoothed_ear: None,
+            last_smoothed_left: None,
+            last_smoothed_right: None,
+            last_smoothed_avg: None,
         }
     }
 
@@ -95,25 +101,51 @@ impl EarCalculator {
         let right_ear = Self::compute_single_ear(landmarks, RIGHT_EYE_H, RIGHT_EYE_V1, RIGHT_EYE_V2, RIGHT_EYE_V3);
         let avg_ear = (left_ear + right_ear) / 2.0;
 
-        // Exponential Moving Average (EMA) smoothing:
-        // EMA_t = alpha * current + (1 - alpha) * EMA_{t-1}
-        let smoothed_ear = match self.last_smoothed_ear {
-            Some(prev) => self.alpha * avg_ear + (1.0 - self.alpha) * prev,
+        // Asymmetric Asynchronous EMA Filter:
+        // When eyes are closing (current EAR < prev EAR), we want FAST, lag-free response (alpha_fast = 0.85)
+        // so real biological blinks (even 100 ms micro-blinks) are instantly recognized by the state machine.
+        // When eyes are resting/static (open or closed steady), we use normal alpha (0.35)
+        // to filter out sensor flicker, webcam glare, and frame noise.
+        let left_alpha = match self.last_smoothed_left {
+            Some(prev) if left_ear < prev => 0.85f32,
+            _ => self.alpha,
+        };
+        let right_alpha = match self.last_smoothed_right {
+            Some(prev) if right_ear < prev => 0.85f32,
+            _ => self.alpha,
+        };
+
+        let smoothed_left_ear = match self.last_smoothed_left {
+            Some(prev) => left_alpha * left_ear + (1.0 - left_alpha) * prev,
+            None => left_ear,
+        };
+        let smoothed_right_ear = match self.last_smoothed_right {
+            Some(prev) => right_alpha * right_ear + (1.0 - right_alpha) * prev,
+            None => right_ear,
+        };
+        let smoothed_ear = match self.last_smoothed_avg {
+            Some(prev) => self.alpha * avg_ear + (1.0 - self.alpha) * prev, // Keep canonical EMA for avg_ear display
             None => avg_ear,
         };
 
-        self.last_smoothed_ear = Some(smoothed_ear);
+        self.last_smoothed_left = Some(smoothed_left_ear);
+        self.last_smoothed_right = Some(smoothed_right_ear);
+        self.last_smoothed_avg = Some(smoothed_ear);
 
         Some(EarMetrics {
             left_ear,
             right_ear,
             avg_ear,
+            smoothed_left_ear,
+            smoothed_right_ear,
             smoothed_ear,
         })
     }
 
     pub fn reset(&mut self) {
-        self.last_smoothed_ear = None;
+        self.last_smoothed_left = None;
+        self.last_smoothed_right = None;
+        self.last_smoothed_avg = None;
     }
 }
 

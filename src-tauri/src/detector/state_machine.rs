@@ -43,9 +43,13 @@ pub struct BlinkDetector {
 
 impl BlinkDetector {
     pub fn new(threshold: f32, stare_limit_secs: f32) -> Self {
+        Self::with_alpha(threshold, stare_limit_secs, 0.40)
+    }
+
+    pub fn with_alpha(threshold: f32, stare_limit_secs: f32, alpha: f32) -> Self {
         let now = Instant::now();
         Self {
-            ear_calculator: EarCalculator::new(0.3),
+            ear_calculator: EarCalculator::new(alpha),
             threshold,
             stare_limit_secs,
             left_closed_frames: 0,
@@ -95,8 +99,8 @@ impl BlinkDetector {
             }
         };
 
-        let left_eye_closed = ear_metrics.left_ear < self.threshold;
-        let right_eye_closed = ear_metrics.right_ear < self.threshold;
+        let left_eye_closed = ear_metrics.smoothed_left_ear < self.threshold;
+        let right_eye_closed = ear_metrics.smoothed_right_ear < self.threshold;
 
         let mut left_blink_completed = false;
         let mut right_blink_completed = false;
