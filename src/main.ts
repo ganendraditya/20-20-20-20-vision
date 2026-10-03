@@ -212,8 +212,30 @@ async function loadStats() {
 
 async function listenToCameraFrames() {
   try {
+    const videoImg = document.getElementById("cam-video-stream") as HTMLImageElement | null;
+    const placeholder = document.getElementById("cam-loading-placeholder");
+    const hudBadge = document.getElementById("cam-hud-badge");
+    const earText = document.getElementById("cam-hud-ear");
+    const faceText = document.getElementById("cam-hud-face");
+
     unlistenCameraFrames = await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
       const data = event.payload;
+
+      // Update image stream
+      if (data.image_data_base64 && videoImg) {
+        videoImg.src = data.image_data_base64;
+        videoImg.style.display = "block";
+        if (placeholder) placeholder.style.display = "none";
+        if (hudBadge) hudBadge.style.display = "flex";
+      }
+
+      // Update HUD metrics
+      if (earText) earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
+      if (faceText) {
+        faceText.textContent = data.is_face_detected ? "Muka: Terdeteksi" : "Muka: Tidak Ada";
+        faceText.style.color = data.is_face_detected ? "#10b981" : "#ef4444";
+      }
+
       // Rising-edge trigger: count only on transition to prevent multi-frame duplicate increments
       if (data.is_blinking) {
         if (!wasBlinking) {

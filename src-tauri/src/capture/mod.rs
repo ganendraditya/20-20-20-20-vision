@@ -1,6 +1,7 @@
 pub mod frame;
 
 pub use frame::CameraFrameDto;
+
 use nokhwa::{
     native_api_backend,
     query,
@@ -8,10 +9,18 @@ use nokhwa::{
     Camera,
 };
 use nokhwa::pixel_format::RgbFormat;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
+
+use crate::detector::BlinkDetector;
+use crate::timer::PresenceTimer;
+use crate::vision::FaceMeshEngine;
 use crate::AppState;
 
 pub struct CameraManager {
@@ -50,9 +59,6 @@ impl CameraManager {
         println!("[420vision::camera] Attempting to initialize camera at index {}", index);
 
         // Try standard formats in priority order
-        // 1. macOS AVFoundation native RAWRGB 720p @ 30FPS
-        // 2. YUYV 640x480 @ 15FPS (common USB webcams & Windows MSMF)
-        // 3. NV12 1080p
         let candidate_formats = vec![
             CameraFormat::new(Resolution::new(1280, 720), FrameFormat::RAWRGB, 30),
             CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 15),
@@ -84,13 +90,49 @@ impl CameraManager {
     }
 }
 
-/// The background daemon loop that manages the camera stream
+/// Locate or fallback FaceMesh model path
+fn get_facemesh_model_path() -> PathBuf {
+    // 1. Check local models directory relative to current working directory
+    let local = PathBuf::from("models/facemesh.onnx");
+    if local.exists() {
+        return local;
+    }
+    // 2. Check installed bundle directory
+    if let Some(share) = dirs::data_dir() {
+        let installed = share.join("420vision/models/facemesh.onnx");
+        if installed.exists() {
+            return installed;
+        }
+    }
+    local
+}
+
+/// The background daemon loop that manages the camera stream & live vision inference
 pub fn run_capture_loop(app_handle: AppHandle) {
     thread::spawn(move || {
         let mut cam_manager = CameraManager::new();
         let mut current_cam_index = 9999; // Force init on first pass
-        
+
+        // Initialize FaceMeshEngine
+        let model_path = get_facemesh_model_path();
+        let mut vision_engine = match FaceMeshEngine::new(&model_path) {
+            Ok(engine) => {
+                println!("[420vision::vision] ✅ Loaded FaceMesh model from {:?}", model_path);
+                Some(engine)
+            }
+            Err(e) => {
+                eprintln!("[420vision::vision] ⚠️ Could not load FaceMesh model ({:?}): {}", model_path, e);
+                None
+            }
+        };
+
+        // Initialize BlinkDetector and PresenceTimer
+        let mut blink_detector = BlinkDetector::new(0.22, 8.0);
+        let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
+
         loop {
+            let now = Instant::now();
+
             // Check state
             let (is_running, selected_index, is_sandbox_viewing) = {
                 let state_mutex = app_handle.state::<Mutex<AppState>>();
@@ -103,7 +145,6 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             };
 
             if !is_running {
-                // If user toggled OFF via master switch, yield camera completely
                 cam_manager.release_camera();
                 current_cam_index = usize::MAX;
                 thread::sleep(Duration::from_millis(1000));
@@ -132,7 +173,6 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                     update_status_text(&app_handle, "Monitoring Active");
                     println!("[420vision::camera] Camera re-acquired after external app released it.");
                 } else {
-                    // Still busy, wait 5 seconds before retrying
                     thread::sleep(Duration::from_secs(5));
                     continue;
                 }
@@ -142,42 +182,110 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             if let Some(cam) = &mut cam_manager.camera {
                 match cam.frame() {
                     Ok(frame) => {
-                        // Conditional rendering: emit frame event ONLY when user is viewing Camera Test tab
-                        if is_sandbox_viewing {
-                            let (w, h) = (frame.resolution().width(), frame.resolution().height());
-                            let dto = CameraFrameDto {
-                                width: w,
-                                height: h,
-                                is_face_detected: true,
-                                left_ear: 0.30,
-                                right_ear: 0.30,
-                                avg_ear: 0.30,
-                                is_blinking: false,
-                                total_blinks: 0,
-                                image_data_base64: None,
-                            };
-                            let _ = app_handle.emit("camera-sandbox-frame", dto);
+                        let (w, h) = (frame.resolution().width() as usize, frame.resolution().height() as usize);
+                        
+                        // Decode raw buffer to RGB
+                        let mut is_face = false;
+                        let mut left_ear = 0.0f32;
+                        let mut right_ear = 0.0f32;
+                        let mut avg_ear = 0.0f32;
+                        let mut is_blinking = false;
+                        let mut total_blinks = 0u32;
+                        let mut current_bpm = 0.0f32;
+
+                        if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
+                            let raw_bytes = rgb_img.as_raw();
+
+                            // Run ONNX FaceMesh inference
+                            if let Some(engine) = &mut vision_engine {
+                                let preprocessed = engine.preprocess(raw_bytes, w, h);
+                                if let Ok(landmarks) = engine.infer(preprocessed) {
+                                    is_face = true;
+
+                                    // Run blink detector
+                                    let event = blink_detector.update(&landmarks, now);
+                                    is_blinking = event.is_blink;
+                                    total_blinks = event.total_blinks;
+                                    current_bpm = event.current_bpm;
+                                    left_ear = event.left_ear;
+                                    right_ear = event.right_ear;
+                                    avg_ear = event.avg_ear;
+
+                                    // Trigger stare warning notification if prolonged staring
+                                    if event.stare_warning {
+                                        println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
+                                        crate::notifier::Notifier::notify_stare_warning();
+                                        crate::notifier::AudioPlayer::play_stare_warning();
+                                    }
+                                } else {
+                                    blink_detector.update(&[], now);
+                                }
+                            }
+
+                            // Run presence timer
+                            let presence_state = presence_timer.update(is_face, now);
+                            if presence_state.break_triggered {
+                                println!("[420vision::alert] ✨ 20-20-20 Break time triggered!");
+                                crate::notifier::Notifier::notify_break_time();
+                                crate::notifier::AudioPlayer::play_break_chime();
+                            }
+
+                            // Update global AppState metrics
+                            {
+                                let state_mutex = app_handle.state::<Mutex<AppState>>();
+                                let mut state = state_mutex.lock().unwrap();
+                                state.status.bpm = current_bpm;
+                                state.status.total_blinks_today = total_blinks;
+                                state.status.next_break_seconds = presence_state.next_break_seconds;
+                                if is_face {
+                                    state.status.status_text = "Monitoring Active".to_string();
+                                } else {
+                                    state.status.status_text = "Away / Paused".to_string();
+                                }
+                            }
+
+                            // Conditional rendering: emit image stream ONLY when user views Camera Test tab
+                            if is_sandbox_viewing {
+                                // Downscale preview image to 320x180 JPEG for zero-lag transmission
+                                let thumb = image::imageops::thumbnail(&rgb_img, 320, 180);
+                                let mut jpeg_bytes = Vec::new();
+                                let mut cursor = Cursor::new(&mut jpeg_bytes);
+                                let base64_str = if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                                    Some(format!("data:image/jpeg;base64,{}", BASE64_STANDARD.encode(&jpeg_bytes)))
+                                } else {
+                                    None
+                                };
+
+                                let dto = CameraFrameDto {
+                                    width: w as u32,
+                                    height: h as u32,
+                                    is_face_detected: is_face,
+                                    left_ear,
+                                    right_ear,
+                                    avg_ear,
+                                    is_blinking,
+                                    total_blinks,
+                                    image_data_base64: base64_str,
+                                };
+                                let _ = app_handle.emit("camera-sandbox-frame", dto);
+                            }
                         }
 
-                        // Throttle frame rate manually to ~15 FPS to save CPU (1000ms / 15 ≈ 67ms)
+                        // Throttle frame rate manually to ~15 FPS to save CPU
                         thread::sleep(Duration::from_millis(67));
                     }
                     Err(nokhwa::NokhwaError::ReadFrameError(_)) 
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
-                        // Conflict detected! Camera stolen by another app.
-                        // IMPLEMENT ALWAYS-YIELD PRINCIPLE
                         cam_manager.release_camera();
                         cam_manager.is_paused_by_conflict = true;
                         update_status_text(&app_handle, "⚠️ Camera Paused (In Use)");
                         println!("[420vision::camera] Hardware contention detected (Zoom/Meet/FaceTime active). Yielding camera.");
                     }
                     Err(_) => {
-                        // Other errors, back off briefly
                         thread::sleep(Duration::from_millis(500));
                     }
                 }
             } else {
-                // No camera available at all
                 update_status_text(&app_handle, "⚠️ No Camera Detected");
                 thread::sleep(Duration::from_secs(5));
             }

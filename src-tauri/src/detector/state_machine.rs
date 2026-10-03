@@ -11,6 +11,9 @@ pub struct BlinkEvent {
     pub current_bpm: f32,
     pub total_blinks: u32,
     pub stare_duration_secs: f32,
+    pub left_ear: f32,
+    pub right_ear: f32,
+    pub avg_ear: f32,
 }
 
 pub struct BlinkDetector {
@@ -71,6 +74,9 @@ impl BlinkDetector {
                     current_bpm: self.get_rolling_bpm(now),
                     total_blinks: self.total_blinks,
                     stare_duration_secs: 0.0,
+                    left_ear: 0.0,
+                    right_ear: 0.0,
+                    avg_ear: 0.0,
                 };
             }
         };
@@ -152,6 +158,9 @@ impl BlinkDetector {
             current_bpm: self.get_rolling_bpm(now),
             total_blinks: self.total_blinks,
             stare_duration_secs: (stare_duration * 10.0).round() / 10.0,
+            left_ear: (ear_metrics.left_ear * 1000.0).round() / 1000.0,
+            right_ear: (ear_metrics.right_ear * 1000.0).round() / 1000.0,
+            avg_ear: (ear_metrics.avg_ear * 1000.0).round() / 1000.0,
         }
     }
 

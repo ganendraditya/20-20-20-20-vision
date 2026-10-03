@@ -23,6 +23,8 @@ ndarray = "0.17"
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "6.0"
 tempfile = "3.10"
+base64 = "0.22"
+image = { version = "0.25", features = ["jpeg"] }
 
 [profile.release]
 codegen-units = 1
