@@ -1,6 +1,6 @@
 pub mod frame;
 
-pub use frame::{CameraFrameDto, EyeLandmarkPoint};
+pub use frame::{CameraFrameDto, LandmarkPoint};
 
 use nokhwa::{
     native_api_backend,
@@ -298,12 +298,30 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                             // Conditional rendering: emit image stream ONLY when user views Camera Test tab
                             if is_sandbox_viewing {
-                                // Extract eye contour landmarks and map from crop-space to full-frame coordinates
+                                // 1. Eye contour landmarks (16 points)
                                 let eye_indices = [
                                     33, 133, 159, 145, 158, 153, 160, 144, // Left eye
                                     362, 263, 386, 374, 387, 373, 385, 380, // Right eye
                                 ];
+
+                                // 2. Essential face contour landmarks (jaw, eyebrows, nose, mouth ~68 canonical points)
+                                let face_contour_indices = [
+                                    // Jawline (17 points)
+                                    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400,
+                                    152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+                                    // Left eyebrow (5 points)
+                                    70, 63, 105, 66, 107,
+                                    // Right eyebrow (5 points)
+                                    336, 296, 334, 293, 300,
+                                    // Nose bridge & tip (9 points)
+                                    168, 6, 197, 195, 5, 4, 1, 19, 94, 2,
+                                    // Outer lips (12 points)
+                                    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
+                                ];
+
                                 let mut eye_points = Vec::with_capacity(eye_indices.len());
+                                let mut face_points = Vec::with_capacity(face_contour_indices.len());
+
                                 if is_face {
                                     if let Some(last_lm) = &landmarks_cache {
                                         let side = w.min(h);
@@ -312,10 +330,17 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                         for &idx in &eye_indices {
                                             if let Some(lm) = last_lm.get(idx) {
-                                                // Remap [0..1] crop coordinate back to [0..1] full-frame space
                                                 let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
                                                 let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
-                                                eye_points.push(EyeLandmarkPoint { x: full_x, y: full_y });
+                                                eye_points.push(LandmarkPoint { x: full_x, y: full_y });
+                                            }
+                                        }
+
+                                        for &idx in &face_contour_indices {
+                                            if let Some(lm) = last_lm.get(idx) {
+                                                let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                                let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                                face_points.push(LandmarkPoint { x: full_x, y: full_y });
                                             }
                                         }
                                     }
@@ -341,6 +366,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     is_blinking,
                                     total_blinks,
                                     eye_landmarks: eye_points,
+                                    face_landmarks: face_points,
                                     image_data_base64: base64_str,
                                 };
                                 let _ = app_handle.emit("camera-sandbox-frame", dto);

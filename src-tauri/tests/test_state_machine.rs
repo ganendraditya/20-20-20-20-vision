@@ -136,31 +136,48 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     // Initial state: both open
     detector.update(&both_open, now);
 
-    // 1. Test winking left eye only (closure for 200ms)
+    // 1. Test isolated winking left eye only (single eye without right eye follow-up)
     now += Duration::from_millis(100);
-    let evt_w1 = detector.update(&left_wink, now);
-    assert!(!evt_w1.is_blink);
+    detector.update(&left_wink, now);
     now += Duration::from_millis(100);
-    let evt_w2 = detector.update(&left_wink, now);
-    assert!(!evt_w2.is_blink);
+    detector.update(&left_wink, now);
     now += Duration::from_millis(50);
     let evt_reopen1 = detector.update(&both_open, now);
-    assert!(!evt_reopen1.is_blink, "Left eye wink must NOT register as blink");
-    assert_eq!(evt_reopen1.total_blinks, 0);
+    assert!(!evt_reopen1.is_blink);
+    // Advance past the 1.0s pairing window
+    now += Duration::from_millis(1100);
+    let evt_expired1 = detector.update(&both_open, now);
+    assert!(!evt_expired1.is_blink, "Isolated left wink must NOT count as blink");
+    assert_eq!(evt_expired1.total_blinks, 0);
 
-    // 2. Test winking right eye only (closure for 200ms)
+    // 2. Test isolated winking right eye only (single eye without left eye follow-up)
     now += Duration::from_millis(100);
-    let evt_r1 = detector.update(&right_wink, now);
-    assert!(!evt_r1.is_blink);
+    detector.update(&right_wink, now);
     now += Duration::from_millis(100);
-    let evt_r2 = detector.update(&right_wink, now);
-    assert!(!evt_r2.is_blink);
+    detector.update(&right_wink, now);
     now += Duration::from_millis(50);
     let evt_reopen2 = detector.update(&both_open, now);
-    assert!(!evt_reopen2.is_blink, "Right eye wink must NOT register as blink");
-    assert_eq!(evt_reopen2.total_blinks, 0);
+    assert!(!evt_reopen2.is_blink);
+    now += Duration::from_millis(1100);
+    let evt_expired2 = detector.update(&both_open, now);
+    assert!(!evt_expired2.is_blink, "Isolated right wink must NOT count as blink");
+    assert_eq!(evt_expired2.total_blinks, 0);
 
-    // 3. Test genuine bilateral blink (both eyes close for 200ms)
+    // 3. Test asynchronous sequential winking within 1.0s window:
+    // Left eye winks, then 400ms later right eye winks -> MUST PAIR and count +1!
+    now += Duration::from_millis(100);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(100);
+    detector.update(&both_open, now); // Left wink completed
+
+    now += Duration::from_millis(400); // 400ms gap (< 1.0s)
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(100);
+    let evt_async_blink = detector.update(&both_open, now); // Right wink completed
+    assert!(evt_async_blink.is_blink, "Sequential winking within 1.0s window MUST register as valid blink");
+    assert_eq!(evt_async_blink.total_blinks, 1);
+
+    // 4. Test simultaneous bilateral blink (both eyes close together)
     let both_closed = create_synthetic_landmarks(1.0, 10.0); // EAR = 0.1
     now += Duration::from_millis(100);
     detector.update(&both_closed, now);
@@ -169,5 +186,5 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     now += Duration::from_millis(50);
     let evt_blink = detector.update(&both_open, now);
     assert!(evt_blink.is_blink, "Simultaneous closure of both eyes MUST register as valid blink");
-    assert_eq!(evt_blink.total_blinks, 1);
+    assert_eq!(evt_blink.total_blinks, 2);
 }

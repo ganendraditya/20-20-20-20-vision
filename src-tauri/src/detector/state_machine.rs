@@ -21,10 +21,16 @@ pub struct BlinkDetector {
     threshold: f32,
     stare_limit_secs: f32,
 
-    // Temporal state tracking
-    closed_frames_count: u32,
-    is_currently_closed: bool,
-    closure_start_instant: Option<Instant>,
+    // Temporal state tracking per eye
+    left_closed_frames: u32,
+    left_is_closed: bool,
+    left_closure_start: Option<Instant>,
+    last_left_blink_at: Option<Instant>,
+
+    right_closed_frames: u32,
+    right_is_closed: bool,
+    right_closure_start: Option<Instant>,
+    last_right_blink_at: Option<Instant>,
 
     // Stare tracking
     last_open_instant: Instant,
@@ -42,9 +48,14 @@ impl BlinkDetector {
             ear_calculator: EarCalculator::new(0.3),
             threshold,
             stare_limit_secs,
-            closed_frames_count: 0,
-            is_currently_closed: false,
-            closure_start_instant: None,
+            left_closed_frames: 0,
+            left_is_closed: false,
+            left_closure_start: None,
+            last_left_blink_at: None,
+            right_closed_frames: 0,
+            right_is_closed: false,
+            right_closure_start: None,
+            last_right_blink_at: None,
             last_open_instant: now,
             stare_warning_issued: false,
             blink_timestamps: VecDeque::with_capacity(100),
@@ -61,10 +72,13 @@ impl BlinkDetector {
         let ear_metrics = match self.ear_calculator.calculate(landmarks) {
             Some(metrics) => metrics,
             None => {
-                // If face not detected, pause stare warning timer and clear active closure state
-                self.is_currently_closed = false;
-                self.closure_start_instant = None;
-                self.closed_frames_count = 0;
+                // If face not detected, pause stare warning timer and clear active closure states
+                self.left_is_closed = false;
+                self.left_closure_start = None;
+                self.left_closed_frames = 0;
+                self.right_is_closed = false;
+                self.right_closure_start = None;
+                self.right_closed_frames = 0;
                 self.last_open_instant = now;
                 self.stare_warning_issued = false;
                 return BlinkEvent {
@@ -81,63 +95,124 @@ impl BlinkDetector {
             }
         };
 
-        // Bilateral blink requirement: Both eyes must close simultaneously to qualify as a valid biological blink.
-        // Winking (closing one eye only) does NOT count as a lubricative blink.
-        let is_eye_closed = ear_metrics.left_ear < self.threshold && ear_metrics.right_ear < self.threshold;
-        let mut is_blink_event = false;
+        let left_eye_closed = ear_metrics.left_ear < self.threshold;
+        let right_eye_closed = ear_metrics.right_ear < self.threshold;
+
+        let mut left_blink_completed = false;
+        let mut right_blink_completed = false;
         let mut is_resting_event = false;
 
-        if is_eye_closed {
-            if !self.is_currently_closed {
-                // Eye just closed this frame
-                self.is_currently_closed = true;
-                self.closure_start_instant = Some(now);
-                self.closed_frames_count = 1;
+        // --- Process Left Eye ---
+        if left_eye_closed {
+            if !self.left_is_closed {
+                self.left_is_closed = true;
+                self.left_closure_start = Some(now);
+                self.left_closed_frames = 1;
             } else {
-                self.closed_frames_count += 1;
+                self.left_closed_frames += 1;
             }
 
-            // Check if eye is resting (> 1.0s continuous closure)
-            if let Some(start_time) = self.closure_start_instant {
-                let duration = now.checked_duration_since(start_time)
-                    .map(|d| d.as_secs_f32())
-                    .unwrap_or(0.0);
+            if let Some(start) = self.left_closure_start {
+                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
                 if duration >= 1.0 {
                     is_resting_event = true;
-                    // While resting, pause the stare timer so dry eye alert doesn't trigger
-                    self.last_open_instant = now;
-                    self.stare_warning_issued = false;
                 }
             }
-        } else {
-            // Eye is open
-            if self.is_currently_closed {
-                // Eye just reopened! Calculate duration of closure
-                if let Some(start_time) = self.closure_start_instant {
-                    let closure_duration = now.checked_duration_since(start_time)
-                        .map(|d| d.as_secs_f32())
-                        .unwrap_or(0.0);
-
-                    // Valid biological blink: between 0.08s and 0.8s
-                    if (0.08..=0.8).contains(&closure_duration) || (self.closed_frames_count >= 2 && closure_duration < 1.0) {
-                        self.total_blinks += 1;
-                        self.blink_timestamps.push_back(now);
-                        is_blink_event = true;
-                    }
+        } else if self.left_is_closed {
+            if let Some(start) = self.left_closure_start {
+                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
+                if (0.08..=0.8).contains(&duration) || (self.left_closed_frames >= 2 && duration < 1.0) {
+                    left_blink_completed = true;
                 }
+            }
+            self.left_is_closed = false;
+            self.left_closure_start = None;
+            self.left_closed_frames = 0;
+            self.last_open_instant = now;
+            self.stare_warning_issued = false;
+        }
 
-                self.is_currently_closed = false;
-                self.closure_start_instant = None;
-                self.closed_frames_count = 0;
-                
-                // Reset stare timer upon completing eye closure / blink
+        // --- Process Right Eye ---
+        if right_eye_closed {
+            if !self.right_is_closed {
+                self.right_is_closed = true;
+                self.right_closure_start = Some(now);
+                self.right_closed_frames = 1;
+            } else {
+                self.right_closed_frames += 1;
+            }
+
+            if let Some(start) = self.right_closure_start {
+                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
+                if duration >= 1.0 {
+                    is_resting_event = true;
+                }
+            }
+        } else if self.right_is_closed {
+            if let Some(start) = self.right_closure_start {
+                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
+                if (0.08..=0.8).contains(&duration) || (self.right_closed_frames >= 2 && duration < 1.0) {
+                    right_blink_completed = true;
+                }
+            }
+            self.right_is_closed = false;
+            self.right_closure_start = None;
+            self.right_closed_frames = 0;
+            self.last_open_instant = now;
+            self.stare_warning_issued = false;
+        }
+
+        if is_resting_event {
+            self.last_open_instant = now;
+            self.stare_warning_issued = false;
+        }
+
+        // --- Asynchronous Blink Matching with 1.0s Window ---
+        if left_blink_completed {
+            self.last_left_blink_at = Some(now);
+        }
+        if right_blink_completed {
+            self.last_right_blink_at = Some(now);
+        }
+
+        let mut is_blink_event = false;
+        if let (Some(t_left), Some(t_right)) = (self.last_left_blink_at, self.last_right_blink_at) {
+            let diff = if t_left > t_right {
+                t_left.checked_duration_since(t_right).map(|d| d.as_secs_f32()).unwrap_or(0.0)
+            } else {
+                t_right.checked_duration_since(t_left).map(|d| d.as_secs_f32()).unwrap_or(0.0)
+            };
+
+            // If both eyes completed blink within 1.0s window cap
+            if diff <= 1.0 {
+                self.total_blinks += 1;
+                self.blink_timestamps.push_back(now);
+                is_blink_event = true;
+
+                // Reset match trackers once paired
+                self.last_left_blink_at = None;
+                self.last_right_blink_at = None;
+
                 self.last_open_instant = now;
                 self.stare_warning_issued = false;
             }
         }
 
+        // Expire unpaired single-eye blinks older than 1.0s
+        if let Some(t_left) = self.last_left_blink_at {
+            if now.checked_duration_since(t_left).map(|d| d.as_secs_f32()).unwrap_or(0.0) > 1.0 {
+                self.last_left_blink_at = None;
+            }
+        }
+        if let Some(t_right) = self.last_right_blink_at {
+            if now.checked_duration_since(t_right).map(|d| d.as_secs_f32()).unwrap_or(0.0) > 1.0 {
+                self.last_right_blink_at = None;
+            }
+        }
+
         // Stare duration calculation (while eyes are open)
-        let stare_duration = if self.is_currently_closed {
+        let any_eye_closed = self.left_is_closed || self.right_is_closed;
+        let stare_duration = if any_eye_closed {
             0.0
         } else {
             now.checked_duration_since(self.last_open_instant)
@@ -146,7 +221,7 @@ impl BlinkDetector {
         };
 
         let mut trigger_stare_warning = false;
-        if stare_duration >= self.stare_limit_secs && !self.stare_warning_issued && !self.is_currently_closed {
+        if stare_duration >= self.stare_limit_secs && !self.stare_warning_issued && !any_eye_closed {
             trigger_stare_warning = true;
             self.stare_warning_issued = true;
         }
@@ -186,9 +261,14 @@ impl BlinkDetector {
     }
 
     pub fn reset(&mut self, now: Instant) {
-        self.closed_frames_count = 0;
-        self.is_currently_closed = false;
-        self.closure_start_instant = None;
+        self.left_closed_frames = 0;
+        self.left_is_closed = false;
+        self.left_closure_start = None;
+        self.last_left_blink_at = None;
+        self.right_closed_frames = 0;
+        self.right_is_closed = false;
+        self.right_closure_start = None;
+        self.last_right_blink_at = None;
         self.last_open_instant = now;
         self.stare_warning_issued = false;
         self.blink_timestamps.clear();
