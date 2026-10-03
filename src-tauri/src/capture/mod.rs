@@ -1,6 +1,6 @@
 pub mod frame;
 
-pub use frame::CameraFrameDto;
+pub use frame::{CameraFrameDto, EyeLandmarkPoint};
 
 use nokhwa::{
     native_api_backend,
@@ -192,6 +192,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         let mut is_blinking = false;
                         let mut total_blinks = 0u32;
                         let mut current_bpm = 0.0f32;
+                        let mut landmarks_cache = None;
 
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
@@ -210,6 +211,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     left_ear = event.left_ear;
                                     right_ear = event.right_ear;
                                     avg_ear = event.avg_ear;
+                                    landmarks_cache = Some(landmarks);
 
                                     // Trigger stare warning notification if prolonged staring
                                     if event.stare_warning {
@@ -246,6 +248,20 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                             // Conditional rendering: emit image stream ONLY when user views Camera Test tab
                             if is_sandbox_viewing {
+                                // Extract eye contour landmarks for visual overlay
+                                let eye_indices = [
+                                    33, 133, 159, 145, 158, 153, // Left eye
+                                    362, 263, 386, 374, 387, 373, // Right eye
+                                ];
+                                let mut eye_points = Vec::new();
+                                if let Some(last_lm) = &landmarks_cache {
+                                    for &idx in &eye_indices {
+                                        if let Some(lm) = last_lm.get(idx) {
+                                            eye_points.push(EyeLandmarkPoint { x: lm.x, y: lm.y });
+                                        }
+                                    }
+                                }
+
                                 // Downscale preview image to 320x180 JPEG for zero-lag transmission
                                 let thumb = image::imageops::thumbnail(&rgb_img, 320, 180);
                                 let mut jpeg_bytes = Vec::new();
@@ -265,6 +281,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     avg_ear,
                                     is_blinking,
                                     total_blinks,
+                                    eye_landmarks: eye_points,
                                     image_data_base64: base64_str,
                                 };
                                 let _ = app_handle.emit("camera-sandbox-frame", dto);

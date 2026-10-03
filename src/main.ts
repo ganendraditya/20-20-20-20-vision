@@ -10,6 +10,11 @@ interface AppStatus {
   status_text: string;
 }
 
+interface EyeLandmarkPoint {
+  x: number;
+  y: number;
+}
+
 interface CameraFrameDto {
   width: number;
   height: number;
@@ -19,6 +24,7 @@ interface CameraFrameDto {
   avg_ear: number;
   is_blinking: boolean;
   total_blinks: number;
+  eye_landmarks: EyeLandmarkPoint[];
   image_data_base64: string | null;
 }
 
@@ -213,10 +219,13 @@ async function loadStats() {
 async function listenToCameraFrames() {
   try {
     const videoImg = document.getElementById("cam-video-stream") as HTMLImageElement | null;
+    const canvas = document.getElementById("cam-mesh-canvas") as HTMLCanvasElement | null;
+    const ctx = canvas?.getContext("2d");
     const placeholder = document.getElementById("cam-loading-placeholder");
     const hudBadge = document.getElementById("cam-hud-badge");
     const earText = document.getElementById("cam-hud-ear");
     const faceText = document.getElementById("cam-hud-face");
+    const chkShowMesh = document.getElementById("chk-show-mesh") as HTMLInputElement | null;
 
     unlistenCameraFrames = await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
       const data = event.payload;
@@ -227,6 +236,36 @@ async function listenToCameraFrames() {
         videoImg.style.display = "block";
         if (placeholder) placeholder.style.display = "none";
         if (hudBadge) hudBadge.style.display = "flex";
+      }
+
+      // Draw Eye Mesh Overlay on canvas
+      if (canvas && ctx) {
+        const cw = canvas.parentElement?.clientWidth || 320;
+        const ch = canvas.parentElement?.clientHeight || 230;
+        if (canvas.width !== cw || canvas.height !== ch) {
+          canvas.width = cw;
+          canvas.height = ch;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const showMesh = chkShowMesh ? chkShowMesh.checked : true;
+        if (showMesh && data.eye_landmarks && data.eye_landmarks.length > 0) {
+          canvas.style.display = "block";
+          ctx.fillStyle = data.is_blinking ? "#ef4444" : "#38bdf8";
+          ctx.strokeStyle = data.is_blinking ? "#ef4444" : "#0284c7";
+          ctx.lineWidth = 1.5;
+
+          for (const pt of data.eye_landmarks) {
+            const px = pt.x * canvas.width;
+            const py = pt.y * canvas.height;
+            ctx.beginPath();
+            ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          canvas.style.display = "none";
+        }
       }
 
       // Update HUD metrics

@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EyeLandmarkPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraFrameDto {
     pub width: u32,
     pub height: u32,
@@ -10,6 +16,7 @@ pub struct CameraFrameDto {
     pub avg_ear: f32,
     pub is_blinking: bool,
     pub total_blinks: u32,
+    pub eye_landmarks: Vec<EyeLandmarkPoint>,
     /// JPEG base64 or empty when window is minimized
     pub image_data_base64: Option<String>,
 }

@@ -4,15 +4,21 @@ pub use state_machine::{BlinkDetector, BlinkEvent};
 use crate::vision::Landmark3D;
 
 // Single source of truth for canonical MediaPipe 468 landmark indices around the eyes
-// Reference: Soukupova & Cech (2016) adapted to MediaPipe topology
+// In MediaPipe 468 FaceMesh topology:
+// Left eye (viewer's left / anatomical right eye):
+//   Horizontal corners: 33 (outer), 133 (inner)
+//   Vertical top-bottom pairs: (159, 145) center, (158, 153), (160, 144)
+// Right eye (viewer's right / anatomical left eye):
+//   Horizontal corners: 362 (inner), 263 (outer)
+//   Vertical top-bottom pairs: (386, 374) center, (387, 373), (385, 380)
 
-pub const LEFT_EYE_H: (usize, usize) = (362, 263); // Outer & inner corners
-pub const LEFT_EYE_V1: (usize, usize) = (385, 380); // Top & bottom pair 1
-pub const LEFT_EYE_V2: (usize, usize) = (387, 373); // Top & bottom pair 2
+pub const LEFT_EYE_H: (usize, usize) = (33, 133);
+pub const LEFT_EYE_V1: (usize, usize) = (159, 145);
+pub const LEFT_EYE_V2: (usize, usize) = (158, 153);
 
-pub const RIGHT_EYE_H: (usize, usize) = (33, 133);  // Outer & inner corners
-pub const RIGHT_EYE_V1: (usize, usize) = (160, 144); // Top & bottom pair 1
-pub const RIGHT_EYE_V2: (usize, usize) = (158, 153); // Top & bottom pair 2
+pub const RIGHT_EYE_H: (usize, usize) = (362, 263);
+pub const RIGHT_EYE_V1: (usize, usize) = (386, 374);
+pub const RIGHT_EYE_V2: (usize, usize) = (387, 373);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EarMetrics {
