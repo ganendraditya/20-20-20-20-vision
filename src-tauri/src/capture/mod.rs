@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::detector::BlinkDetector;
 use crate::timer::PresenceTimer;
-use crate::vision::FaceMeshEngine;
+use crate::vision::{BlazeFaceEngine, FaceMeshEngine};
 use crate::AppState;
 
 pub struct CameraManager {
@@ -107,6 +107,23 @@ fn get_facemesh_model_path() -> PathBuf {
     local
 }
 
+/// Locate or fallback BlazeFace detector model path
+fn get_blazeface_model_path() -> PathBuf {
+    // 1. Check local models directory relative to current working directory
+    let local = PathBuf::from("models/blazeface.onnx");
+    if local.exists() {
+        return local;
+    }
+    // 2. Check installed bundle directory
+    if let Some(share) = dirs::data_dir() {
+        let installed = share.join("420vision/models/blazeface.onnx");
+        if installed.exists() {
+            return installed;
+        }
+    }
+    local
+}
+
 /// The background daemon loop that manages the camera stream & live vision inference
 pub fn run_capture_loop(app_handle: AppHandle) {
     thread::spawn(move || {
@@ -122,6 +139,19 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
             Err(e) => {
                 eprintln!("[420vision::vision] ⚠️ Could not load FaceMesh model ({:?}): {}", model_path, e);
+                None
+            }
+        };
+
+        // Initialize BlazeFace detector
+        let blaze_path = get_blazeface_model_path();
+        let mut face_detector = match BlazeFaceEngine::new(&blaze_path) {
+            Ok(detector) => {
+                println!("[420vision::vision] ✅ Loaded BlazeFace detector from {:?}", blaze_path);
+                Some(detector)
+            }
+            Err(e) => {
+                eprintln!("[420vision::vision] ⚠️ Could not load BlazeFace detector ({:?}): {}", blaze_path, e);
                 None
             }
         };
@@ -197,31 +227,51 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Run ONNX FaceMesh inference
-                            if let Some(engine) = &mut vision_engine {
-                                let preprocessed = engine.preprocess(raw_bytes, w, h);
-                                if let Ok(landmarks) = engine.infer(preprocessed) {
-                                    is_face = true;
-
-                                    // Run blink detector
-                                    let event = blink_detector.update(&landmarks, now);
-                                    is_blinking = event.is_blink;
-                                    total_blinks = event.total_blinks;
-                                    current_bpm = event.current_bpm;
-                                    left_ear = event.left_ear;
-                                    right_ear = event.right_ear;
-                                    avg_ear = event.avg_ear;
-                                    landmarks_cache = Some(landmarks);
-
-                                    // Trigger stare warning notification if prolonged staring
-                                    if event.stare_warning {
-                                        println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
-                                        crate::notifier::Notifier::notify_stare_warning();
-                                        crate::notifier::AudioPlayer::play_stare_warning();
+                            // Gatekeeper: Verify facial presence using BlazeFace detector
+                            let face_present = if let Some(detector) = &mut face_detector {
+                                let blaze_input = detector.preprocess(raw_bytes, w, h);
+                                match detector.detect_face(blaze_input) {
+                                    Ok(detected) => detected,
+                                    Err(e) => {
+                                        eprintln!("[420vision::vision] BlazeFace detection error: {}", e);
+                                        true // Fail-safe: fallback to FaceMesh on detector error
                                     }
-                                } else {
-                                    blink_detector.update(&[], now);
                                 }
+                            } else {
+                                true // Detector not available, fallback
+                            };
+
+                            if face_present {
+                                // Run ONNX FaceMesh inference
+                                if let Some(engine) = &mut vision_engine {
+                                    let preprocessed = engine.preprocess(raw_bytes, w, h);
+                                    if let Ok(landmarks) = engine.infer(preprocessed) {
+                                        is_face = true;
+
+                                        // Run blink detector
+                                        let event = blink_detector.update(&landmarks, now);
+                                        is_blinking = event.is_blink;
+                                        total_blinks = event.total_blinks;
+                                        current_bpm = event.current_bpm;
+                                        left_ear = event.left_ear;
+                                        right_ear = event.right_ear;
+                                        avg_ear = event.avg_ear;
+                                        landmarks_cache = Some(landmarks);
+
+                                        // Trigger stare warning notification if prolonged staring
+                                        if event.stare_warning {
+                                            println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
+                                            crate::notifier::Notifier::notify_stare_warning();
+                                            crate::notifier::AudioPlayer::play_stare_warning();
+                                        }
+                                    } else {
+                                        blink_detector.update(&[], now);
+                                    }
+                                }
+                            } else {
+                                is_face = false;
+                                landmarks_cache = None;
+                                blink_detector.update(&[], now);
                             }
 
                             // Run presence timer
@@ -254,17 +304,19 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     362, 263, 386, 374, 387, 373, 385, 380, // Right eye
                                 ];
                                 let mut eye_points = Vec::with_capacity(eye_indices.len());
-                                if let Some(last_lm) = &landmarks_cache {
-                                    let side = w.min(h);
-                                    let crop_x = (w - side) / 2;
-                                    let crop_y = (h - side) / 2;
+                                if is_face {
+                                    if let Some(last_lm) = &landmarks_cache {
+                                        let side = w.min(h);
+                                        let crop_x = (w - side) / 2;
+                                        let crop_y = (h - side) / 2;
 
-                                    for &idx in &eye_indices {
-                                        if let Some(lm) = last_lm.get(idx) {
-                                            // Remap [0..1] crop coordinate back to [0..1] full-frame space
-                                            let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
-                                            let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
-                                            eye_points.push(EyeLandmarkPoint { x: full_x, y: full_y });
+                                        for &idx in &eye_indices {
+                                            if let Some(lm) = last_lm.get(idx) {
+                                                // Remap [0..1] crop coordinate back to [0..1] full-frame space
+                                                let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                                let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                                eye_points.push(EyeLandmarkPoint { x: full_x, y: full_y });
+                                            }
                                         }
                                     }
                                 }

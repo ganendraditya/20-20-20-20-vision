@@ -81,7 +81,9 @@ impl BlinkDetector {
             }
         };
 
-        let is_eye_closed = ear_metrics.avg_ear < self.threshold;
+        // Bilateral blink requirement: Both eyes must close simultaneously to qualify as a valid biological blink.
+        // Winking (closing one eye only) does NOT count as a lubricative blink.
+        let is_eye_closed = ear_metrics.left_ear < self.threshold && ear_metrics.right_ear < self.threshold;
         let mut is_blink_event = false;
         let mut is_resting_event = false;
 

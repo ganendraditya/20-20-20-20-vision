@@ -52,12 +52,15 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Download Pre-trained FaceMesh ONNX Model
+      - name: Download Pre-trained Vision ONNX Models
         shell: bash
         run: |
           mkdir -p models
           if [ ! -f models/facemesh.onnx ]; then
             curl -fL -o models/facemesh.onnx "https://raw.githubusercontent.com/iperov/DeepFaceLive/fc7b787bda2b8c186e142c52857458eea3a935ed/modelhub/onnx/FaceMesh/FaceMesh.onnx"
+          fi
+          if [ ! -f models/blazeface.onnx ]; then
+            curl -fL -o models/blazeface.onnx "https://raw.githubusercontent.com/longnguyen2/blazeface/master/blazeface.onnx"
           fi
 
       - name: Run Test Suite
@@ -78,6 +81,7 @@ jobs:
           cp ${{ matrix.platform.binary_src }} dist-release/420vision.exe
           mkdir -p dist-release/models
           cp models/facemesh.onnx dist-release/models/
+          cp models/blazeface.onnx dist-release/models/
           cd dist-release && 7z a ../${{ matrix.platform.artifact_name }} *
 
       - name: Package Artifacts (macOS)
@@ -89,6 +93,7 @@ jobs:
           chmod +x dist-release/420vision
           mkdir -p dist-release/models
           cp models/facemesh.onnx dist-release/models/
+          cp models/blazeface.onnx dist-release/models/
           tar -czf ${{ matrix.platform.artifact_name }} -C dist-release .
 
       - name: Upload Release Asset

@@ -60,6 +60,7 @@ else
         cp "src-tauri/target/release/420vision" "${INSTALL_DIR}/420vision"
         mkdir -p "${INSTALL_DIR}/models"
         [ -f "models/facemesh.onnx" ] && cp "models/facemesh.onnx" "${INSTALL_DIR}/models/"
+        [ -f "models/blazeface.onnx" ] && cp "models/blazeface.onnx" "${INSTALL_DIR}/models/"
     elif [ -f "dist-release/420vision" ]; then
         cp -r dist-release/* "${INSTALL_DIR}/"
     else
