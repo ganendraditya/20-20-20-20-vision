@@ -163,19 +163,19 @@ The 20-20-20-20 vision rule for digital eye strain:
 
 ## 6. Execution Milestones
 
-- [ ] **Milestone 1: Rust Core Setup & Native Camera Grabber**
+- [x] **Milestone 1: Rust Core Setup & Native Camera Grabber**
   - Initialize Tauri v2 project structure.
   - Implement native camera capture with graceful yield (Zoom/Meet conflict handling).
-- [ ] **Milestone 2: ONNX Runtime Vision & Blink Engine**
+- [x] **Milestone 2: ONNX Runtime Vision & Blink Engine**
   - Integrate ONNX FaceMesh model for real-time eyelid landmarks.
   - Implement EAR calculation, blink counter state machine, and prolonged closure logic.
-- [ ] **Milestone 3: Menu Bar / System Tray & 1.1.1.1 UI Popover**
+- [x] **Milestone 3: Menu Bar / System Tray & Minimalist UI Popover**
   - Implement native tray menu and background daemon lifecycle.
-  - Build the 4-tab UI: Home (1.1.1.1 toggle), Camera Test (PhotoBooth live feed), Analytics, Settings.
-- [ ] **Milestone 4: Native Notifications & In-Memory Audio**
+  - Build the 4-tab UI: Home, Camera Test (PhotoBooth sandbox), Analytics, Settings.
+- [x] **Milestone 4: Native Notifications & In-Memory Audio**
   - Native macOS banner / Windows Action Center toast notifications.
   - In-memory synthesized gentle chime cues.
-- [ ] **Milestone 5: Terminal One-Line Installers & CI/CD**
+- [x] **Milestone 5: Terminal One-Line Installers & CI/CD**
   - GitHub Actions automated release pipeline to build native binaries for macOS (Universal) and Windows (`.exe`).
   - Implement `install.sh` and `install.ps1` curl/irm terminal installers.
   - Verification & comprehensive README documentation.
