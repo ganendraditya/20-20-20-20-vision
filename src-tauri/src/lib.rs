@@ -161,14 +161,14 @@ pub fn run() {
             // Start the background camera capture daemon
             capture::run_capture_loop(app.handle().clone());
 
-            // Build Tray Menu
-            let toggle_item = MenuItem::with_id(app, "toggle_window", "Open 420vision", true, None::<&str>)?;
-            let pause_item = MenuItem::with_id(app, "toggle_pause", "Pause / Resume Monitoring", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit 420vision", true, None::<&str>)?;
+            // Build Tray Menu items with clear labels
+            let open_item = MenuItem::with_id(app, "open_window", "👁️ Open 420vision", true, None::<&str>)?;
+            let toggle_item = MenuItem::with_id(app, "toggle_pause", "⏸ Turn Monitoring OFF / ON", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "❌ Quit 420vision", true, None::<&str>)?;
             
             let tray_menu = Menu::with_items(app, &[
+                &open_item,
                 &toggle_item,
-                &pause_item,
                 &quit_item,
             ])?;
 
@@ -179,7 +179,39 @@ pub fn run() {
                 .tooltip("420vision: 20-20-20-20 Vision Assistant")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
-                        "toggle_window" => {
+                        "open_window" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "toggle_pause" => {
+                            let state = app.state::<Mutex<AppState>>();
+                            let mut state = state.lock().unwrap();
+                            state.status.is_running = !state.status.is_running;
+                            if state.status.is_running {
+                                state.status.status_text = "Monitoring Active".to_string();
+                            } else {
+                                state.status.status_text = "Paused".to_string();
+                            }
+                            println!("[420vision::tray] Monitoring toggled -> {}", state.status.is_running);
+                        }
+                        "quit" => {
+                            println!("[420vision::tray] Quit clicked -> exiting cleanly");
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    match event {
+                        // Left-click: toggle popover window
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => {
+                            let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {
                                     let state = app.state::<Mutex<AppState>>();
@@ -192,41 +224,7 @@ pub fn run() {
                                 }
                             }
                         }
-                        "toggle_pause" => {
-                            let state = app.state::<Mutex<AppState>>();
-                            let mut state = state.lock().unwrap();
-                            state.status.is_running = !state.status.is_running;
-                            if state.status.is_running {
-                                state.status.status_text = "Monitoring Active".to_string();
-                            } else {
-                                state.status.status_text = "Paused".to_string();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
                         _ => {}
-                    }
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let state = app.state::<Mutex<AppState>>();
-                                let mut state = state.lock().unwrap();
-                                state.is_sandbox_viewing = false;
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
                     }
                 })
                 .build(app)?;
