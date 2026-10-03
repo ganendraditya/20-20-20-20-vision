@@ -59,10 +59,15 @@
         <!-- Tab 2: Camera Test (PhotoBooth Sandbox) -->
         <section id="tab-camera" class="tab-pane">
           <div class="camera-preview-box">
-            <div class="camera-placeholder">
+            <img id="cam-video-stream" class="cam-live-img" alt="Camera Feed" style="display: none;" />
+            <div id="cam-loading-placeholder" class="camera-placeholder">
               <span class="cam-icon">📹</span>
               <p>Camera Stream Ready</p>
-              <small class="text-muted">Face & Eye mesh tracking active</small>
+              <small class="text-muted">Tatap kamera untuk menguji kedipan</small>
+            </div>
+            <div id="cam-hud-badge" class="cam-hud-overlay" style="display: none;">
+              <span id="cam-hud-ear">EAR: 0.00</span>
+              <span id="cam-hud-face">Muka: Terdeteksi</span>
             </div>
           </div>
           <div class="sandbox-controls">
