@@ -29,7 +29,8 @@ impl FaceMeshEngine {
         Ok(Self { session })
     }
 
-    /// Preprocess an RGB image buffer (width x height) into [1, 192, 192, 3] normalized float tensor
+    /// Preprocess an RGB image buffer (width x height) into [1, 192, 192, 3] normalized float tensor.
+    /// Uses square center cropping to preserve facial aspect ratio without distortion.
     pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize) -> Array4<f32> {
         let mut input_tensor = Array4::<f32>::zeros((1, 192, 192, 3));
         
@@ -37,13 +38,17 @@ impl FaceMeshEngine {
             return input_tensor;
         }
 
-        let x_ratio = width as f32 / 192.0;
-        let y_ratio = height as f32 / 192.0;
+        // Take the square center crop of the camera feed (min of width and height)
+        let side = width.min(height);
+        let crop_x = (width - side) / 2;
+        let crop_y = (height - side) / 2;
+
+        let scale = side as f32 / 192.0;
 
         for y in 0..192 {
             for x in 0..192 {
-                let src_x = (x as f32 * x_ratio).min((width - 1) as f32) as usize;
-                let src_y = (y as f32 * y_ratio).min((height - 1) as f32) as usize;
+                let src_x = crop_x + (x as f32 * scale).min((side - 1) as f32) as usize;
+                let src_y = crop_y + (y as f32 * scale).min((side - 1) as f32) as usize;
                 let src_idx = (src_y * width + src_x) * 3;
 
                 if src_idx + 2 < rgb_data.len() {

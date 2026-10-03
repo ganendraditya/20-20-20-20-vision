@@ -60,6 +60,7 @@
         <section id="tab-camera" class="tab-pane">
           <div class="camera-preview-box">
             <img id="cam-video-stream" class="cam-live-img" alt="Camera Feed" style="display: none;" />
+            <canvas id="cam-mesh-canvas" class="cam-mesh-canvas" style="display: none;"></canvas>
             <div id="cam-loading-placeholder" class="camera-placeholder">
               <span class="cam-icon">📹</span>
               <p>Camera Stream Ready</p>
@@ -75,7 +76,13 @@
               <span>Test Blinks:</span>
               <strong id="val-sandbox-blinks">0</strong>
             </div>
-            <button id="btn-reset-sandbox" class="btn-sm">🔄 Reset</button>
+            <div class="sandbox-actions">
+              <label class="toggle-mesh-label">
+                <input type="checkbox" id="chk-show-mesh" checked />
+                <span>Show Mesh</span>
+              </label>
+              <button id="btn-reset-sandbox" class="btn-sm">🔄 Reset</button>
+            </div>
           </div>
         </section>
 
