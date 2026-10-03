@@ -7,7 +7,7 @@ use nokhwa::{
     utils::{CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution},
     Camera,
 };
-use nokhwa::pixel_format::YuyvFormat;
+use nokhwa::pixel_format::RgbFormat;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::thread;
@@ -44,37 +44,42 @@ impl CameraManager {
         list
     }
 
-    /// Initialize a specific camera device
+    /// Initialize a specific camera device with fallback formats
     pub fn init_camera(&mut self, index: usize) -> Result<(), String> {
-        let _backend = native_api_backend().unwrap_or(nokhwa::utils::ApiBackend::Auto);
         let idx = CameraIndex::Index(index as u32);
-        
-        // Request low resolution (e.g. 640x480) for performance
-        let format = RequestedFormat::new::<YuyvFormat>(
-            RequestedFormatType::Closest(CameraFormat::new(
-                Resolution::new(640, 480),
-                FrameFormat::YUYV,
-                15, // 15 FPS
-            ))
-        );
+        println!("[420vision::camera] Attempting to initialize camera at index {}", index);
 
-        match Camera::new(idx, format) {
-            Ok(mut cam) => {
-                if let Err(e) = cam.open_stream() {
-                    return Err(format!("Failed to open camera stream: {}", e));
+        // Try standard formats in priority order
+        // 1. macOS AVFoundation native RAWRGB 720p @ 30FPS
+        // 2. YUYV 640x480 @ 15FPS (common USB webcams & Windows MSMF)
+        // 3. NV12 1080p
+        let candidate_formats = vec![
+            CameraFormat::new(Resolution::new(1280, 720), FrameFormat::RAWRGB, 30),
+            CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 15),
+            CameraFormat::new(Resolution::new(1920, 1080), FrameFormat::NV12, 30),
+            CameraFormat::new(Resolution::new(640, 480), FrameFormat::NV12, 30),
+        ];
+
+        for fmt in candidate_formats {
+            let req = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(fmt));
+            if let Ok(mut cam) = Camera::new(idx.clone(), req) {
+                if let Ok(_) = cam.open_stream() {
+                    println!("[420vision::camera] ✅ Stream opened successfully with format: {:?}", fmt);
+                    self.camera = Some(cam);
+                    self.is_paused_by_conflict = false;
+                    return Ok(());
                 }
-                self.camera = Some(cam);
-                self.is_paused_by_conflict = false;
-                Ok(())
             }
-            Err(e) => Err(format!("Failed to initialize camera: {}", e)),
         }
+
+        Err(format!("Could not open camera stream at index {} with any supported format", index))
     }
 
     /// Stop the camera stream and release the device completely
     pub fn release_camera(&mut self) {
         if let Some(mut cam) = self.camera.take() {
             let _ = cam.stop_stream();
+            println!("[420vision::camera] Camera stream released.");
         }
     }
 }
@@ -108,8 +113,15 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             // Handle Camera Selection Changes, initial start, or resume
             if current_cam_index != selected_index || cam_manager.camera.is_none() {
                 cam_manager.release_camera();
-                if cam_manager.init_camera(selected_index).is_ok() {
-                    current_cam_index = selected_index;
+                match cam_manager.init_camera(selected_index) {
+                    Ok(_) => {
+                        current_cam_index = selected_index;
+                        update_status_text(&app_handle, "Monitoring Active");
+                        println!("[420vision::camera] Camera {} active and monitoring.", selected_index);
+                    }
+                    Err(e) => {
+                        println!("[420vision::camera] Init failed: {}", e);
+                    }
                 }
             }
 
@@ -118,6 +130,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 if cam_manager.init_camera(selected_index).is_ok() {
                     cam_manager.is_paused_by_conflict = false;
                     update_status_text(&app_handle, "Monitoring Active");
+                    println!("[420vision::camera] Camera re-acquired after external app released it.");
                 } else {
                     // Still busy, wait 5 seconds before retrying
                     thread::sleep(Duration::from_secs(5));
@@ -156,6 +169,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         cam_manager.release_camera();
                         cam_manager.is_paused_by_conflict = true;
                         update_status_text(&app_handle, "⚠️ Camera Paused (In Use)");
+                        println!("[420vision::camera] Hardware contention detected (Zoom/Meet/FaceTime active). Yielding camera.");
                     }
                     Err(_) => {
                         // Other errors, back off briefly

@@ -65,6 +65,7 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
     } else {
         state.status.status_text = "Paused".to_string();
     }
+    println!("[420vision::ipc] toggle_monitoring -> {}", state.status.is_running);
     state.status.is_running
 }
 
@@ -72,22 +73,27 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
 fn set_sandbox_viewing(active: bool, state: State<'_, Mutex<AppState>>) {
     let mut state = state.lock().unwrap();
     state.is_sandbox_viewing = active;
+    println!("[420vision::ipc] set_sandbox_viewing -> {}", active);
 }
 
 #[tauri::command]
 fn get_cameras(_state: State<'_, Mutex<AppState>>) -> Vec<String> {
-    capture::CameraManager::list_cameras()
+    let list = capture::CameraManager::list_cameras();
+    println!("[420vision::ipc] get_cameras -> {:?}", list);
+    list
 }
 
 #[tauri::command]
 fn set_camera(index: usize, state: State<'_, Mutex<AppState>>) -> bool {
     let mut state = state.lock().unwrap();
     state.selected_camera_index = index;
+    println!("[420vision::ipc] set_camera -> {}", index);
     true
 }
 
 #[tauri::command]
 fn start_calibration() -> String {
+    println!("[420vision::ipc] start_calibration requested");
     "Calibration initiated".to_string()
 }
 
@@ -102,7 +108,7 @@ pub struct DailyCompliance {
 
 #[tauri::command]
 fn get_stats() -> Vec<DailyCompliance> {
-    match storage::AnalyticsDb::open() {
+    let stats = match storage::AnalyticsDb::open() {
         Ok(db) => match db.get_compliance_history(7) {
             Ok(history) if !history.is_empty() => history,
             _ => vec![
@@ -119,7 +125,9 @@ fn get_stats() -> Vec<DailyCompliance> {
             eprintln!("[420vision] Failed to query analytics DB: {}", e);
             vec![]
         }
-    }
+    };
+    println!("[420vision::ipc] get_stats returned {} items", stats.len());
+    stats
 }
 
 #[tauri::command]
@@ -127,6 +135,7 @@ fn hide_window(app: AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
     state.is_sandbox_viewing = false;
+    println!("[420vision::ipc] hide_window called");
 
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
@@ -135,6 +144,7 @@ fn hide_window(app: AppHandle) {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    println!("[420vision::ipc] quit_app called -> exiting cleanly");
     app.exit(0);
 }
 
