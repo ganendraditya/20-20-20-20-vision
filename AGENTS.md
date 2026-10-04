@@ -112,9 +112,24 @@ Derived from `koma` and `not-notebooklm`:
 ### 4. Strict Branch & Merge Protocol
 - **Every task must be developed on an isolated branch:** `feature/<task-name>` or `fix/<bug-name>`.
 - **STAY on the branch:** Never auto-merge or close issues until the user explicitly tests, reviews, and approves the change.
-- **Pre-Merge Open Code Review (OCR):**
-  - Run multi-model review (Claude Sonnet 4.6, Gemini 3.8 Flash, Gemini 3.1 Pro) before any PR merge.
-  - Resolve all critical, high, and actionable medium findings on the branch first.
+- **Never auto-merge without presenting the full verification scorecard first:** The agent is strictly prohibited from running `gh pr merge` immediately after a PR is opened. Always present the 2-step verification results and ask for explicit user confirmation.
+
+### 5. Code Review Scientific Verification Protocol (Anti-Hallucinated Findings)
+When conducting AI Code Reviews (via `ocr review`, dual LLM evaluations, or manual diff inspection), the agent **MUST NOT ACCEPT REVIEWER FINDINGS AT FACE VALUE**. Follow this mandatory two-step verification protocol before touching code or merging:
+- **Step 1: Problem Validity Verification (Is this a genuine issue or hallucinated?):**
+  - Define the concrete scenario: *"Under what specific action or edge case does this failure occur, and what is the exact error impact?"*
+  - Execute a minimal reproduction script or terminal command (`cargo test`, synthetic frame injection, or benchmark) to test the hypothesis.
+  - If the reproduction triggers an error, crash, memory leak, or measurable accuracy degradation: classify as **CONFIRMED REAL ISSUE** with log evidence.
+  - If the reproduction passes cleanly or the claim relies on obsolete assumptions: reject the finding dialectically as **FALSE POSITIVE / REJECTED** with explicit proof.
+- **Step 2: Solution Validity & Orthogonality Verification:**
+  - Apply the proposed fix with surgical precision.
+  - Re-run the reproduction test to verify the issue is genuinely resolved.
+  - **Orthogonality Check:** Verify that the fix does **NOT introduce regressions** in surrounding modules (run full test suite `cargo test`, build release `npm run tauri build -- --no-bundle`).
+- **Reporting Format to User:**
+  Always report findings structured clearly into two distinct sections before asking for merge permission:
+  1. `### 1. Temuan False Positive / Ditolak (Hallucinated Findings) ❌` (with reproduction proof of why it's rejected).
+  2. `### 2. Temuan Nyata & Sudah Diperbaiki Secara Bedah (Confirmed Real Issues & Fixed) ✅` (with scenario, reproduction proof, and surgical fix).
+  3. `### 3. Verifikasi Pasca-Perbaikan (Orthogonality Check)` (with test pass status).
 
 ---
 
