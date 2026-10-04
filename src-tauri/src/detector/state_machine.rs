@@ -80,9 +80,16 @@ impl BlinkDetector {
             .map(|pose| pose.is_facing_camera)
             .unwrap_or(true);
 
-        let ear_metrics = match self.ear_calculator.calculate(landmarks) {
-            Some(metrics) if is_facing => metrics,
-            _ => {
+        // Guard against updating EMA filter with distorted EAR values while subject is looking away
+        let ear_metrics_opt = if is_facing {
+            self.ear_calculator.calculate(landmarks)
+        } else {
+            None
+        };
+
+        let ear_metrics = match ear_metrics_opt {
+            Some(metrics) => metrics,
+            None => {
                 // If face not detected or looking away, pause stare warning timer and clear active closure states
                 self.left_is_closed = false;
                 self.left_closure_start = None;

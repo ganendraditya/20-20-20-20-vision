@@ -27,6 +27,9 @@ pub const NOSE_TIP: usize = 1;
 pub const LEFT_EYE_OUTER_CORNER: usize = 33;
 pub const RIGHT_EYE_OUTER_CORNER: usize = 263;
 
+/// Maximum permissible nasal-interocular yaw asymmetry ratio for frontal gaze (< ~35 degree turn)
+pub const MAX_YAW_RATIO_FRONTAL: f32 = 0.35;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeadPoseMetrics {
     pub is_facing_camera: bool,
@@ -126,8 +129,8 @@ impl EarCalculator {
         let nose_offset = (p_nose.x - eye_mid_x).abs();
         let yaw_ratio = nose_offset / interocular_width;
 
-        // Threshold: 0.35 rejects > 35-degree turns and profile silhouettes
-        let is_facing_camera = yaw_ratio <= 0.35;
+        // Threshold: rejects > 35-degree turns and profile silhouettes
+        let is_facing_camera = yaw_ratio <= MAX_YAW_RATIO_FRONTAL;
 
         Some(HeadPoseMetrics {
             is_facing_camera,
