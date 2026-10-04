@@ -124,6 +124,26 @@ fn get_facedetector_model_path() -> PathBuf {
     local
 }
 
+// Canonical MediaPipe landmark indices for eye contours and essential face structure
+pub const EYE_INDICES: [usize; 16] = [
+    33, 133, 159, 145, 158, 153, 160, 144, // Left eye
+    362, 263, 386, 374, 387, 373, 385, 380, // Right eye
+];
+
+pub const FACE_CONTOUR_INDICES: [usize; 75] = [
+    // Jawline (17 points)
+    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400,
+    152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+    // Left eyebrow (5 points)
+    70, 63, 105, 66, 107,
+    // Right eyebrow (5 points)
+    336, 296, 334, 293, 300,
+    // Nose bridge & tip (9 points)
+    168, 6, 197, 195, 5, 4, 1, 19, 94, 2,
+    // Outer lips (12 points)
+    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
+];
+
 /// The background daemon loop that manages the camera stream & live vision inference
 pub fn run_capture_loop(app_handle: AppHandle) {
     thread::spawn(move || {
@@ -160,26 +180,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         let mut blink_detector = BlinkDetector::new(0.22, 8.0);
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
 
-        // Pre-allocated landmark buffers to prevent repeated heap allocations per frame
-        let eye_indices = [
-            33, 133, 159, 145, 158, 153, 160, 144, // Left eye
-            362, 263, 386, 374, 387, 373, 385, 380, // Right eye
-        ];
-        let face_contour_indices = [
-            // Jawline (17 points)
-            10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400,
-            152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
-            // Left eyebrow (5 points)
-            70, 63, 105, 66, 107,
-            // Right eyebrow (5 points)
-            336, 296, 334, 293, 300,
-            // Nose bridge & tip (9 points)
-            168, 6, 197, 195, 5, 4, 1, 19, 94, 2,
-            // Outer lips (12 points)
-            61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
-        ];
-        let mut eye_points_buf = Vec::with_capacity(eye_indices.len());
-        let mut face_points_buf = Vec::with_capacity(face_contour_indices.len());
+        // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
+        let mut eye_points_buf = Vec::with_capacity(EYE_INDICES.len());
+        let mut face_points_buf = Vec::with_capacity(FACE_CONTOUR_INDICES.len());
 
         loop {
             let now = Instant::now();
@@ -328,7 +331,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                         let crop_x = (w - side) / 2;
                                         let crop_y = (h - side) / 2;
 
-                                        for &idx in &eye_indices {
+                                        for &idx in &EYE_INDICES {
                                             if let Some(lm) = last_lm.get(idx) {
                                                 let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
                                                 let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
@@ -336,7 +339,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                             }
                                         }
 
-                                        for &idx in &face_contour_indices {
+                                        for &idx in &FACE_CONTOUR_INDICES {
                                             if let Some(lm) = last_lm.get(idx) {
                                                 let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
                                                 let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;

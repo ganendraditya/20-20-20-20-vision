@@ -126,7 +126,7 @@ impl BlinkDetector {
             if let Some(start) = self.left_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
                 // Strict guard against single-frame alpha-spike glitches:
-                // Require at least 2 consecutive frames under closure OR minimum 80ms duration
+                // Require at least 2 consecutive frames under closure AND minimum 80ms duration
                 if self.left_closed_frames >= 2 && (0.08..=0.8).contains(&duration) {
                     left_blink_completed = true;
                 }
@@ -158,7 +158,7 @@ impl BlinkDetector {
             if let Some(start) = self.right_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
                 // Strict guard against single-frame alpha-spike glitches:
-                // Require at least 2 consecutive frames under closure OR minimum 80ms duration
+                // Require at least 2 consecutive frames under closure AND minimum 80ms duration
                 if self.right_closed_frames >= 2 && (0.08..=0.8).contains(&duration) {
                     right_blink_completed = true;
                 }
