@@ -35,11 +35,14 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Download FaceMesh ONNX Model
+      - name: Download Vision ONNX Models
         run: |
           mkdir -p models
           if [ ! -f models/facemesh.onnx ]; then
             curl -fL -o models/facemesh.onnx "https://raw.githubusercontent.com/iperov/DeepFaceLive/fc7b787bda2b8c186e142c52857458eea3a935ed/modelhub/onnx/FaceMesh/FaceMesh.onnx"
+          fi
+          if [ ! -f models/ultraface.onnx ]; then
+            curl -fL -o models/ultraface.onnx "https://raw.githubusercontent.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB/master/models/onnx/version-RFB-320.onnx"
           fi
 
       - name: Run Rust Test Suite

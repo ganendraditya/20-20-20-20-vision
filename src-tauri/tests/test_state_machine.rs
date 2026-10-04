@@ -5,21 +5,25 @@ use vision420_lib::vision::Landmark3D;
 fn create_synthetic_landmarks(eye_height: f32, eye_width: f32) -> Vec<Landmark3D> {
     let mut landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
 
-    // Left eye setup (33, 133, 159, 145, 158, 153)
+    // Left eye setup (33, 133, 159, 145, 158, 153, 160, 144)
     landmarks[33] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
     landmarks[133] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
     landmarks[159] = Landmark3D { x: eye_width * 0.5, y: eye_height, z: 0.0 };
     landmarks[145] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
     landmarks[158] = Landmark3D { x: eye_width * 0.3, y: eye_height, z: 0.0 };
     landmarks[153] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[160] = Landmark3D { x: eye_width * 0.7, y: eye_height, z: 0.0 };
+    landmarks[144] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
-    // Right eye setup (362, 263, 386, 374, 387, 373)
+    // Right eye setup (362, 263, 386, 374, 387, 373, 385, 380)
     landmarks[362] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
     landmarks[263] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
     landmarks[386] = Landmark3D { x: eye_width * 0.5, y: eye_height, z: 0.0 };
     landmarks[374] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
     landmarks[387] = Landmark3D { x: eye_width * 0.3, y: eye_height, z: 0.0 };
     landmarks[373] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[385] = Landmark3D { x: eye_width * 0.7, y: eye_height, z: 0.0 };
+    landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
     landmarks
 }
@@ -92,4 +96,95 @@ fn test_prolonged_eye_rest_pauses_stare_warning() {
     assert_eq!(event_reopen.total_blinks, 0);
     assert!(!event_reopen.stare_warning);
     assert_eq!(event_reopen.stare_duration_secs, 0.0);
+}
+
+fn create_asymmetric_landmarks(left_height: f32, right_height: f32, eye_width: f32) -> Vec<Landmark3D> {
+    let mut landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
+
+    // Left eye setup (33, 133, 159, 145, 158, 153, 160, 144)
+    landmarks[33] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
+    landmarks[133] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
+    landmarks[159] = Landmark3D { x: eye_width * 0.5, y: left_height, z: 0.0 };
+    landmarks[145] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
+    landmarks[158] = Landmark3D { x: eye_width * 0.3, y: left_height, z: 0.0 };
+    landmarks[153] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[160] = Landmark3D { x: eye_width * 0.7, y: left_height, z: 0.0 };
+    landmarks[144] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
+
+    // Right eye setup (362, 263, 386, 374, 387, 373, 385, 380)
+    landmarks[362] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
+    landmarks[263] = Landmark3D { x: eye_width, y: 0.0, z: 0.0 };
+    landmarks[386] = Landmark3D { x: eye_width * 0.5, y: right_height, z: 0.0 };
+    landmarks[374] = Landmark3D { x: eye_width * 0.5, y: 0.0, z: 0.0 };
+    landmarks[387] = Landmark3D { x: eye_width * 0.3, y: right_height, z: 0.0 };
+    landmarks[373] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
+    landmarks[385] = Landmark3D { x: eye_width * 0.7, y: right_height, z: 0.0 };
+    landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
+
+    landmarks
+}
+
+#[test]
+fn test_winking_single_eye_does_not_count_as_blink() {
+    let mut detector = BlinkDetector::new(0.25, 2.0);
+    let mut now = Instant::now();
+
+    let both_open = create_synthetic_landmarks(6.0, 10.0); // EAR = 0.6
+    let left_wink = create_asymmetric_landmarks(1.0, 6.0, 10.0); // Left EAR = 0.1, Right EAR = 0.6
+    let right_wink = create_asymmetric_landmarks(6.0, 1.0, 10.0); // Left EAR = 0.6, Right EAR = 0.1
+
+    // Initial state: both open
+    detector.update(&both_open, now);
+
+    // 1. Test isolated winking left eye only (single eye without right eye follow-up)
+    now += Duration::from_millis(100);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(100);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(50);
+    let evt_reopen1 = detector.update(&both_open, now);
+    assert!(!evt_reopen1.is_blink);
+    // Advance past the 1.0s pairing window
+    now += Duration::from_millis(1100);
+    let evt_expired1 = detector.update(&both_open, now);
+    assert!(!evt_expired1.is_blink, "Isolated left wink must NOT count as blink");
+    assert_eq!(evt_expired1.total_blinks, 0);
+
+    // 2. Test isolated winking right eye only (single eye without left eye follow-up)
+    now += Duration::from_millis(100);
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(100);
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(50);
+    let evt_reopen2 = detector.update(&both_open, now);
+    assert!(!evt_reopen2.is_blink);
+    now += Duration::from_millis(1100);
+    let evt_expired2 = detector.update(&both_open, now);
+    assert!(!evt_expired2.is_blink, "Isolated right wink must NOT count as blink");
+    assert_eq!(evt_expired2.total_blinks, 0);
+
+    // 3. Test asynchronous sequential winking within 1.0s window:
+    // Left eye winks, then 400ms later right eye winks -> MUST PAIR and count +1!
+    now += Duration::from_millis(100);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(100);
+    detector.update(&both_open, now); // Left wink completed
+
+    now += Duration::from_millis(400); // 400ms gap (< 1.0s)
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(100);
+    let evt_async_blink = detector.update(&both_open, now); // Right wink completed
+    assert!(evt_async_blink.is_blink, "Sequential winking within 1.0s window MUST register as valid blink");
+    assert_eq!(evt_async_blink.total_blinks, 1);
+
+    // 4. Test simultaneous bilateral blink (both eyes close together)
+    let both_closed = create_synthetic_landmarks(1.0, 10.0); // EAR = 0.1
+    now += Duration::from_millis(100);
+    detector.update(&both_closed, now);
+    now += Duration::from_millis(100);
+    detector.update(&both_closed, now);
+    now += Duration::from_millis(50);
+    let evt_blink = detector.update(&both_open, now);
+    assert!(evt_blink.is_blink, "Simultaneous closure of both eyes MUST register as valid blink");
+    assert_eq!(evt_blink.total_blinks, 2);
 }

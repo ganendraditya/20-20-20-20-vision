@@ -12,6 +12,7 @@ fn test_camera_frame_dto_serialization() {
         is_blinking: false,
         total_blinks: 12,
         eye_landmarks: vec![],
+        face_landmarks: vec![],
         image_data_base64: None,
     };
 

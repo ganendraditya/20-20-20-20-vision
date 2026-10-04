@@ -98,3 +98,71 @@ impl FaceMeshEngine {
         Ok(landmarks)
     }
 }
+
+pub struct FaceDetectorEngine {
+    session: Session,
+}
+
+impl FaceDetectorEngine {
+    /// Initialize the ONNX UltraFace detector session
+    pub fn new<P: AsRef<Path>>(model_path: P) -> Result<Self, String> {
+        let session = Session::builder()
+            .map_err(|e| format!("Failed to create FaceDetector session builder: {}", e))?
+            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(|e| format!("Failed to set FaceDetector optimization level: {}", e))?
+            .with_intra_threads(1)
+            .map_err(|e| format!("Failed to set FaceDetector intra threads: {}", e))?
+            .commit_from_file(model_path)
+            .map_err(|e| format!("Failed to load FaceDetector model: {}", e))?;
+
+        Ok(Self { session })
+    }
+
+    /// Preprocess an RGB image buffer (width x height) into [1, 3, 240, 320] normalized float tensor (NCHW).
+    /// Resizes the camera frame to 320x240 and normalizes with (pixel - 127) / 128.
+    pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize) -> Array4<f32> {
+        let mut input_tensor = Array4::<f32>::zeros((1, 3, 240, 320));
+
+        if width == 0 || height == 0 {
+            return input_tensor;
+        }
+
+        let scale_x = width as f32 / 320.0;
+        let scale_y = height as f32 / 240.0;
+
+        for y in 0..240 {
+            for x in 0..320 {
+                let src_x = (x as f32 * scale_x).min((width - 1) as f32) as usize;
+                let src_y = (y as f32 * scale_y).min((height - 1) as f32) as usize;
+                let src_idx = (src_y * width + src_x) * 3;
+
+                if src_idx + 2 < rgb_data.len() {
+                    // Normalize [0..255] with (p - 127.0) / 128.0
+                    input_tensor[[0, 0, y, x]] = (rgb_data[src_idx] as f32 - 127.0) / 128.0;
+                    input_tensor[[0, 1, y, x]] = (rgb_data[src_idx + 1] as f32 - 127.0) / 128.0;
+                    input_tensor[[0, 2, y, x]] = (rgb_data[src_idx + 2] as f32 - 127.0) / 128.0;
+                }
+            }
+        }
+
+        input_tensor
+    }
+
+    /// Run FaceDetector inference. Returns true if any face candidate has confidence >= 0.70.
+    pub fn detect_face(&mut self, input_tensor: Array4<f32>) -> Result<bool, String> {
+        let tensor_value = ort::value::Tensor::from_array(input_tensor)
+            .map_err(|e| format!("Failed to create FaceDetector tensor value: {}", e))?;
+
+        let inputs = ort::inputs![tensor_value];
+        let outputs = self.session.run(inputs).map_err(|e| format!("FaceDetector inference failed: {}", e))?;
+
+        // UltraFace outputs[0] is `scores` of shape [1, 4420, 2]
+        let (_shape, slice) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("Failed to extract FaceDetector output tensor: {}", e))?;
+
+        // Chunk by 2: [background_score, face_score]
+        let has_face = slice.chunks_exact(2).any(|c| c[1] >= 0.70);
+        Ok(has_face)
+    }
+}

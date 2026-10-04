@@ -10,7 +10,7 @@ interface AppStatus {
   status_text: string;
 }
 
-interface EyeLandmarkPoint {
+interface LandmarkPoint {
   x: number;
   y: number;
 }
@@ -24,7 +24,8 @@ interface CameraFrameDto {
   avg_ear: number;
   is_blinking: boolean;
   total_blinks: number;
-  eye_landmarks: EyeLandmarkPoint[];
+  eye_landmarks: LandmarkPoint[];
+  face_landmarks: LandmarkPoint[];
   image_data_base64: string | null;
 }
 
@@ -47,13 +48,19 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-window.addEventListener("DOMContentLoaded", () => {
+function init() {
   setupTabs();
   setupIPC();
   loadCameras();
   startStatusPoller();
   listenToCameraFrames();
-});
+}
+
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 
 function setupTabs() {
   const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
@@ -226,6 +233,7 @@ async function listenToCameraFrames() {
     const earText = document.getElementById("cam-hud-ear");
     const faceText = document.getElementById("cam-hud-face");
     const chkShowMesh = document.getElementById("chk-show-mesh") as HTMLInputElement | null;
+    const chkShowFace = document.getElementById("chk-show-face-contour") as HTMLInputElement | null;
 
     unlistenCameraFrames = await listen<CameraFrameDto>("camera-sandbox-frame", (event) => {
       const data = event.payload;
@@ -238,7 +246,7 @@ async function listenToCameraFrames() {
         if (hudBadge) hudBadge.style.display = "flex";
       }
 
-      // Draw Eye Mesh Overlay on canvas
+      // Draw Landmark Overlay on canvas
       if (canvas && ctx) {
         const cw = canvas.parentElement?.clientWidth || 320;
         const ch = canvas.parentElement?.clientHeight || 230;
@@ -249,23 +257,38 @@ async function listenToCameraFrames() {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const showMesh = chkShowMesh ? chkShowMesh.checked : true;
-        if (showMesh && data.eye_landmarks && data.eye_landmarks.length > 0) {
-          canvas.style.display = "block";
-          ctx.fillStyle = data.is_blinking ? "#ef4444" : "#38bdf8";
-          ctx.strokeStyle = data.is_blinking ? "#ef4444" : "#0284c7";
-          ctx.lineWidth = 1.5;
+        const showEyeMesh = chkShowMesh ? chkShowMesh.checked : true;
+        const showFaceContour = chkShowFace ? chkShowFace.checked : true;
 
+        let hasDrawn = false;
+
+        // 1. Draw Full Face Contour (jaw, eyebrows, nose, mouth)
+        if (showFaceContour && data.face_landmarks && data.face_landmarks.length > 0) {
+          hasDrawn = true;
+          ctx.fillStyle = "#a855f7"; // Vibrant purple for facial contours
+          for (const pt of data.face_landmarks) {
+            const px = (1.0 - pt.x) * canvas.width;
+            const py = pt.y * canvas.height;
+            ctx.beginPath();
+            ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // 2. Draw Eye Mesh Overlay
+        if (showEyeMesh && data.eye_landmarks && data.eye_landmarks.length > 0) {
+          hasDrawn = true;
+          ctx.fillStyle = data.is_blinking ? "#ef4444" : "#38bdf8"; // Red when blinking, cyan when open
           for (const pt of data.eye_landmarks) {
-            const px = pt.x * canvas.width;
+            const px = (1.0 - pt.x) * canvas.width;
             const py = pt.y * canvas.height;
             ctx.beginPath();
             ctx.arc(px, py, 2.5, 0, Math.PI * 2);
             ctx.fill();
           }
-        } else {
-          canvas.style.display = "none";
         }
+
+        canvas.style.display = hasDrawn ? "block" : "none";
       }
 
       // Update HUD metrics

@@ -1,6 +1,6 @@
 pub mod frame;
 
-pub use frame::{CameraFrameDto, EyeLandmarkPoint};
+pub use frame::{CameraFrameDto, LandmarkPoint};
 
 use nokhwa::{
     native_api_backend,
@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::detector::BlinkDetector;
 use crate::timer::PresenceTimer;
-use crate::vision::FaceMeshEngine;
+use crate::vision::{FaceDetectorEngine, FaceMeshEngine};
 use crate::AppState;
 
 pub struct CameraManager {
@@ -107,6 +107,23 @@ fn get_facemesh_model_path() -> PathBuf {
     local
 }
 
+/// Locate or fallback FaceDetector model path
+fn get_facedetector_model_path() -> PathBuf {
+    // 1. Check local models directory relative to current working directory
+    let local = PathBuf::from("models/ultraface.onnx");
+    if local.exists() {
+        return local;
+    }
+    // 2. Check installed bundle directory
+    if let Some(share) = dirs::data_dir() {
+        let installed = share.join("420vision/models/ultraface.onnx");
+        if installed.exists() {
+            return installed;
+        }
+    }
+    local
+}
+
 /// The background daemon loop that manages the camera stream & live vision inference
 pub fn run_capture_loop(app_handle: AppHandle) {
     thread::spawn(move || {
@@ -122,6 +139,19 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
             Err(e) => {
                 eprintln!("[420vision::vision] ⚠️ Could not load FaceMesh model ({:?}): {}", model_path, e);
+                None
+            }
+        };
+
+        // Initialize UltraFace detector
+        let detector_path = get_facedetector_model_path();
+        let mut face_detector = match FaceDetectorEngine::new(&detector_path) {
+            Ok(detector) => {
+                println!("[420vision::vision] ✅ Loaded UltraFace detector from {:?}", detector_path);
+                Some(detector)
+            }
+            Err(e) => {
+                eprintln!("[420vision::vision] ⚠️ Could not load UltraFace detector ({:?}): {}", detector_path, e);
                 None
             }
         };
@@ -197,31 +227,51 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Run ONNX FaceMesh inference
-                            if let Some(engine) = &mut vision_engine {
-                                let preprocessed = engine.preprocess(raw_bytes, w, h);
-                                if let Ok(landmarks) = engine.infer(preprocessed) {
-                                    is_face = true;
-
-                                    // Run blink detector
-                                    let event = blink_detector.update(&landmarks, now);
-                                    is_blinking = event.is_blink;
-                                    total_blinks = event.total_blinks;
-                                    current_bpm = event.current_bpm;
-                                    left_ear = event.left_ear;
-                                    right_ear = event.right_ear;
-                                    avg_ear = event.avg_ear;
-                                    landmarks_cache = Some(landmarks);
-
-                                    // Trigger stare warning notification if prolonged staring
-                                    if event.stare_warning {
-                                        println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
-                                        crate::notifier::Notifier::notify_stare_warning();
-                                        crate::notifier::AudioPlayer::play_stare_warning();
+                            // Gatekeeper: Verify facial presence using UltraFace detector
+                            let face_present = if let Some(detector) = &mut face_detector {
+                                let det_input = detector.preprocess(raw_bytes, w, h);
+                                match detector.detect_face(det_input) {
+                                    Ok(detected) => detected,
+                                    Err(e) => {
+                                        eprintln!("[420vision::vision] FaceDetector error: {}", e);
+                                        true // Fail-safe: fallback to FaceMesh on detector error
                                     }
-                                } else {
-                                    blink_detector.update(&[], now);
                                 }
+                            } else {
+                                true // Detector not available, fallback
+                            };
+
+                            if face_present {
+                                // Run ONNX FaceMesh inference
+                                if let Some(engine) = &mut vision_engine {
+                                    let preprocessed = engine.preprocess(raw_bytes, w, h);
+                                    if let Ok(landmarks) = engine.infer(preprocessed) {
+                                        is_face = true;
+
+                                        // Run blink detector
+                                        let event = blink_detector.update(&landmarks, now);
+                                        is_blinking = event.is_blink;
+                                        total_blinks = event.total_blinks;
+                                        current_bpm = event.current_bpm;
+                                        left_ear = event.left_ear;
+                                        right_ear = event.right_ear;
+                                        avg_ear = event.avg_ear;
+                                        landmarks_cache = Some(landmarks);
+
+                                        // Trigger stare warning notification if prolonged staring
+                                        if event.stare_warning {
+                                            println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
+                                            crate::notifier::Notifier::notify_stare_warning();
+                                            crate::notifier::AudioPlayer::play_stare_warning();
+                                        }
+                                    } else {
+                                        blink_detector.update(&[], now);
+                                    }
+                                }
+                            } else {
+                                is_face = false;
+                                landmarks_cache = None;
+                                blink_detector.update(&[], now);
                             }
 
                             // Run presence timer
@@ -248,16 +298,50 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                             // Conditional rendering: emit image stream ONLY when user views Camera Test tab
                             if is_sandbox_viewing {
-                                // Extract eye contour landmarks for visual overlay
+                                // 1. Eye contour landmarks (16 points)
                                 let eye_indices = [
-                                    33, 133, 159, 145, 158, 153, // Left eye
-                                    362, 263, 386, 374, 387, 373, // Right eye
+                                    33, 133, 159, 145, 158, 153, 160, 144, // Left eye
+                                    362, 263, 386, 374, 387, 373, 385, 380, // Right eye
                                 ];
-                                let mut eye_points = Vec::new();
-                                if let Some(last_lm) = &landmarks_cache {
-                                    for &idx in &eye_indices {
-                                        if let Some(lm) = last_lm.get(idx) {
-                                            eye_points.push(EyeLandmarkPoint { x: lm.x, y: lm.y });
+
+                                // 2. Essential face contour landmarks (jaw, eyebrows, nose, mouth ~68 canonical points)
+                                let face_contour_indices = [
+                                    // Jawline (17 points)
+                                    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400,
+                                    152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+                                    // Left eyebrow (5 points)
+                                    70, 63, 105, 66, 107,
+                                    // Right eyebrow (5 points)
+                                    336, 296, 334, 293, 300,
+                                    // Nose bridge & tip (9 points)
+                                    168, 6, 197, 195, 5, 4, 1, 19, 94, 2,
+                                    // Outer lips (12 points)
+                                    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146,
+                                ];
+
+                                let mut eye_points = Vec::with_capacity(eye_indices.len());
+                                let mut face_points = Vec::with_capacity(face_contour_indices.len());
+
+                                if is_face {
+                                    if let Some(last_lm) = &landmarks_cache {
+                                        let side = w.min(h);
+                                        let crop_x = (w - side) / 2;
+                                        let crop_y = (h - side) / 2;
+
+                                        for &idx in &eye_indices {
+                                            if let Some(lm) = last_lm.get(idx) {
+                                                let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                                let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                                eye_points.push(LandmarkPoint { x: full_x, y: full_y });
+                                            }
+                                        }
+
+                                        for &idx in &face_contour_indices {
+                                            if let Some(lm) = last_lm.get(idx) {
+                                                let full_x = (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                                let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                                face_points.push(LandmarkPoint { x: full_x, y: full_y });
+                                            }
                                         }
                                     }
                                 }
@@ -282,6 +366,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     is_blinking,
                                     total_blinks,
                                     eye_landmarks: eye_points,
+                                    face_landmarks: face_points,
                                     image_data_base64: base64_str,
                                 };
                                 let _ = app_handle.emit("camera-sandbox-frame", dto);
