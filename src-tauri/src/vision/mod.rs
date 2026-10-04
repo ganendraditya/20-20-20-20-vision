@@ -10,6 +10,56 @@ pub struct Landmark3D {
     pub z: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceBoundingBox {
+    pub xmin: f32,
+    pub ymin: f32,
+    pub xmax: f32,
+    pub ymax: f32,
+    pub confidence: f32,
+}
+
+impl FaceBoundingBox {
+    pub fn area(&self) -> f32 {
+        let width = (self.xmax - self.xmin).max(0.0);
+        let height = (self.ymax - self.ymin).max(0.0);
+        width * height
+    }
+
+    /// Single source of truth for computing square crop region (x0, y0, side) with margin
+    pub fn compute_crop_region(bbox: Option<&FaceBoundingBox>, width: usize, height: usize) -> (usize, usize, usize) {
+        match bbox {
+            Some(b) => {
+                let bx1 = b.xmin * width as f32;
+                let by1 = b.ymin * height as f32;
+                let bx2 = b.xmax * width as f32;
+                let by2 = b.ymax * height as f32;
+
+                let bw = (bx2 - bx1).max(10.0);
+                let bh = (by2 - by1).max(10.0);
+                let cx = (bx1 + bx2) / 2.0;
+                let cy = (by1 + by2) / 2.0;
+
+                // Expand by 25% margin to preserve full forehead, jawline, and ear landmarks
+                let raw_side = bw.max(bh) * 1.5;
+                let max_side = (width.min(height) as f32).min(raw_side);
+
+                // Clamp top-left origin within frame boundaries
+                let x0 = (cx - max_side / 2.0).clamp(0.0, (width as f32 - max_side).max(0.0)) as usize;
+                let y0 = (cy - max_side / 2.0).clamp(0.0, (height as f32 - max_side).max(0.0)) as usize;
+                let s = (max_side as usize).min(width.saturating_sub(x0)).min(height.saturating_sub(y0)).max(1);
+                (x0, y0, s)
+            }
+            None => {
+                let s = width.min(height);
+                let x0 = (width - s) / 2;
+                let y0 = (height - s) / 2;
+                (x0, y0, s)
+            }
+        }
+    }
+}
+
 pub struct FaceMeshEngine {
     session: Session,
 }
@@ -30,19 +80,17 @@ impl FaceMeshEngine {
     }
 
     /// Preprocess an RGB image buffer (width x height) into [1, 192, 192, 3] normalized float tensor.
-    /// Uses square center cropping to preserve facial aspect ratio without distortion.
-    pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize) -> Array4<f32> {
+    /// If a dominant face bounding box is provided (in [0..1] normalized full-frame coordinates),
+    /// crops with padding around that primary face to isolate the user from background subjects.
+    /// Otherwise, falls back to the center square crop.
+    pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize, dominant_box: Option<&FaceBoundingBox>) -> Array4<f32> {
         let mut input_tensor = Array4::<f32>::zeros((1, 192, 192, 3));
         
         if width == 0 || height == 0 {
             return input_tensor;
         }
 
-        // Take the square center crop of the camera feed (min of width and height)
-        let side = width.min(height);
-        let crop_x = (width - side) / 2;
-        let crop_y = (height - side) / 2;
-
+        let (crop_x, crop_y, side) = FaceBoundingBox::compute_crop_region(dominant_box, width, height);
         let scale = side as f32 / 192.0;
 
         for y in 0..192 {
@@ -150,6 +198,19 @@ impl FaceDetectorEngine {
 
     /// Run FaceDetector inference. Returns true if any face candidate has confidence >= 0.70.
     pub fn detect_face(&mut self, input_tensor: Array4<f32>) -> Result<bool, String> {
+        let (has_face, _) = self.detect_faces_and_primary_box(input_tensor)?;
+        Ok(has_face)
+    }
+
+    /// Run FaceDetector inference with Multi-Face Disambiguation.
+    /// Extracts all candidate faces meeting confidence >= 0.70, calculates their bounding box areas,
+    /// and selects the primary user with the largest area (closest to the screen).
+    ///
+    /// Returns: (has_face: bool, dominant_bbox: Option<FaceBoundingBox>)
+    pub fn detect_faces_and_primary_box(
+        &mut self,
+        input_tensor: Array4<f32>,
+    ) -> Result<(bool, Option<FaceBoundingBox>), String> {
         let tensor_value = ort::value::Tensor::from_array(input_tensor)
             .map_err(|e| format!("Failed to create FaceDetector tensor value: {}", e))?;
 
@@ -157,12 +218,39 @@ impl FaceDetectorEngine {
         let outputs = self.session.run(inputs).map_err(|e| format!("FaceDetector inference failed: {}", e))?;
 
         // UltraFace outputs[0] is `scores` of shape [1, 4420, 2]
-        let (_shape, slice) = outputs[0]
+        let (_s_shape, scores) = outputs[0]
             .try_extract_tensor::<f32>()
-            .map_err(|e| format!("Failed to extract FaceDetector output tensor: {}", e))?;
+            .map_err(|e| format!("Failed to extract FaceDetector scores tensor: {}", e))?;
 
-        // Chunk by 2: [background_score, face_score]
-        let has_face = slice.chunks_exact(2).any(|c| c[1] >= 0.70);
-        Ok(has_face)
+        // UltraFace outputs[1] is `boxes` of shape [1, 4420, 4] where box is [xmin, ymin, xmax, ymax] normalized [0..1]
+        let (_b_shape, boxes) = outputs[1]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
+
+        let mut largest_box: Option<FaceBoundingBox> = None;
+        let mut max_area = 0.0f32;
+        let mut has_face = false;
+
+        for (score_chunk, box_chunk) in scores.chunks_exact(2).zip(boxes.chunks_exact(4)) {
+            let conf = score_chunk[1];
+            if conf >= 0.70 {
+                has_face = true;
+                let candidate = FaceBoundingBox {
+                    xmin: box_chunk[0].clamp(0.0, 1.0),
+                    ymin: box_chunk[1].clamp(0.0, 1.0),
+                    xmax: box_chunk[2].clamp(0.0, 1.0),
+                    ymax: box_chunk[3].clamp(0.0, 1.0),
+                    confidence: conf,
+                };
+
+                let area = candidate.area();
+                if area > max_area {
+                    max_area = area;
+                    largest_box = Some(candidate);
+                }
+            }
+        }
+
+        Ok((has_face, largest_box))
     }
 }

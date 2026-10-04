@@ -89,7 +89,7 @@
                    ▼
      ┌───────────────────────────┐
      │ STAGE 1: UltraFace        │ ◄── Input: [1, 3, 240, 320] NCHW, normalized (p - 127)/128
-     │ RFB-320 ONNX (~2ms CPU)   │
+     │ RFB-320 ONNX (~2ms CPU)   │     Parses all candidate faces (conf >= 0.70)
      └─────────────┬─────────────┘
                    │
          Face detected? (Score >= 0.70)
@@ -101,10 +101,10 @@
           │
           └── YES
                    │
-                   ▼
+                   ▼ (Multi-Face Disambiguation: Select Dominant Box with max(Area))
      ┌───────────────────────────┐
      │ STAGE 2: MediaPipe FaceMesh│ ◄── Input: [1, 192, 192, 3] NHWC, normalized [0.0..1.0]
-     │ 468 3D Landmarks ONNX     │     Crop: Center square (side = min(w, h))
+     │ 468 3D Landmarks ONNX     │     Crop: Dynamic square padded around dominant primary box
      └─────────────┬─────────────┘
                    │
                    ▼

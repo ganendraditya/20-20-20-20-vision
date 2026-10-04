@@ -16,7 +16,7 @@ fn test_facemesh_engine_initialization_and_inference() {
     let height = 480;
     let dummy_rgb = vec![0u8; width * height * 3];
 
-    let preprocessed = engine.preprocess(&dummy_rgb, width, height);
+    let preprocessed = engine.preprocess(&dummy_rgb, width, height, None);
     assert_eq!(preprocessed.shape(), &[1, 192, 192, 3]);
 
     let landmarks = engine.infer(preprocessed).expect("Inference failed");
@@ -57,5 +57,38 @@ fn test_facedetector_engine_presence_detection() {
         let preprocessed_face = engine.preprocess(rgb.as_raw(), w, h);
         let has_face_real = engine.detect_face(preprocessed_face).expect("Detection failed");
         assert!(has_face_real, "Real face frame MUST be detected as face");
+    }
+}
+
+#[test]
+fn test_multi_face_disambiguation_largest_bbox_prioritization() {
+    let model_path = Path::new("../models/ultraface.onnx");
+    if !model_path.exists() {
+        return;
+    }
+
+    let mut engine = FaceDetectorEngine::new(model_path).expect("Failed to initialize FaceDetectorEngine");
+
+    let fixture_path = Path::new("tests/fixtures/1face.png");
+    if fixture_path.exists() {
+        let img = image::open(fixture_path).expect("Failed to open test fixture image").to_rgb8();
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let preprocessed = engine.preprocess(img.as_raw(), w, h);
+        let (has_face, dominant_box) = engine.detect_faces_and_primary_box(preprocessed).expect("Inference failed");
+
+        assert!(has_face, "1face.png must detect a face");
+        assert!(dominant_box.is_some(), "Dominant bounding box must be extracted");
+
+        let bbox = dominant_box.unwrap();
+        println!("Extracted dominant bbox: xmin={:.3}, ymin={:.3}, xmax={:.3}, ymax={:.3}, area={:.4}",
+            bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax, bbox.area());
+
+        // Validate box geometry
+        assert!(bbox.xmax > bbox.xmin, "xmax must exceed xmin");
+        assert!(bbox.ymax > bbox.ymin, "ymax must exceed ymin");
+        assert!(bbox.area() > 0.01, "Face box area must be significant");
+        assert!(bbox.confidence >= 0.70, "Confidence must exceed 0.70");
+    } else {
+        panic!("Missing required test fixture image: {:?}", fixture_path);
     }
 }
