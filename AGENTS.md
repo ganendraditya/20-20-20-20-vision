@@ -177,3 +177,14 @@ Whenever building or refining the Tauri popover UI (HTML/Tailwind/TS):
 - **Resilience:** All states must be handled gracefully (`Monitoring Active`, `Paused (Away)`, `Camera Busy`, `No Camera Detected`).
 - **Conditional Resource Usage:** When the UI window is minimized or closed in the tray, frame rendering to the webview stops completely.
 - **Functional completeness:** No dead buttons, non-functional toggles, or dummy placeholders.
+
+---
+
+## Part 6: Mandatory Technical Stack & Architecture Sync Rule
+
+> **LAW OF SYSTEM SPECIFICATION FRESHNESS:**
+> Any change—whether minor architectural refinement, pipeline modification, model tuning, mathematical adjustment (such as EMA coefficients or state machine timing), or IPC contract alteration—**MUST be immediately synchronized and documented in `docs/TECHNICAL_STACK_AND_PIPELINES.md`**.
+>
+> 1. Never let architectural documentation lag behind code commits.
+> 2. Document the *exact* formulas, landmark topologies, and data contracts that exist in production code.
+> 3. Future agents must inspect `docs/TECHNICAL_STACK_AND_PIPELINES.md` before altering vision pipelines, threshold calculations, or model configurations.
