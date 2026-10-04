@@ -251,24 +251,57 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Gatekeeper: Verify facial presence using UltraFace detector
-                            let face_present = if let Some(detector) = &mut face_detector {
+                            // Gatekeeper: Verify facial presence & extract primary dominant bounding box (Issue #43)
+                            let (face_present, dominant_bbox) = if let Some(detector) = &mut face_detector {
                                 let det_input = detector.preprocess(raw_bytes, w, h);
-                                match detector.detect_face(det_input) {
-                                    Ok(detected) => detected,
+                                match detector.detect_faces_and_primary_box(det_input) {
+                                    Ok((detected, bbox)) => (detected, bbox),
                                     Err(e) => {
                                         eprintln!("[420vision::vision] FaceDetector error: {}", e);
-                                        true // Fail-safe: fallback to FaceMesh on detector error
+                                        (true, None) // Fail-safe: fallback to FaceMesh on detector error
                                     }
                                 }
                             } else {
-                                true // Detector not available, fallback
+                                (true, None) // Detector not available, fallback
                             };
 
+                            // Track the active crop origin and scale for mapping landmarks back to full-frame space
+                            let mut active_crop = None;
+
                             if face_present {
-                                // Run ONNX FaceMesh inference
+                                // Run ONNX FaceMesh inference prioritizing the dominant user
                                 if let Some(engine) = &mut vision_engine {
-                                    let preprocessed = engine.preprocess(raw_bytes, w, h);
+                                    // Compute crop box parameters
+                                    let (crop_x, crop_y, side) = match &dominant_bbox {
+                                        Some(bbox) => {
+                                            let bx1 = bbox.xmin * w as f32;
+                                            let by1 = bbox.ymin * h as f32;
+                                            let bx2 = bbox.xmax * w as f32;
+                                            let by2 = bbox.ymax * h as f32;
+
+                                            let bw = (bx2 - bx1).max(10.0);
+                                            let bh = (by2 - by1).max(10.0);
+                                            let cx = (bx1 + bx2) / 2.0;
+                                            let cy = (by1 + by2) / 2.0;
+
+                                            let raw_side = bw.max(bh) * 1.5;
+                                            let max_side = (w.min(h) as f32).min(raw_side);
+
+                                            let x0 = (cx - max_side / 2.0).clamp(0.0, (w as f32 - max_side).max(0.0)) as usize;
+                                            let y0 = (cy - max_side / 2.0).clamp(0.0, (h as f32 - max_side).max(0.0)) as usize;
+                                            let s = (max_side as usize).min(w.saturating_sub(x0)).min(h.saturating_sub(y0)).max(1);
+                                            (x0, y0, s)
+                                        }
+                                        None => {
+                                            let s = w.min(h);
+                                            let x0 = (w - s) / 2;
+                                            let y0 = (h - s) / 2;
+                                            (x0, y0, s)
+                                        }
+                                    };
+                                    active_crop = Some((crop_x, crop_y, side));
+
+                                    let preprocessed = engine.preprocess(raw_bytes, w, h, dominant_bbox.as_ref());
                                     if let Ok(landmarks) = engine.infer(preprocessed) {
                                         is_face = true;
 
@@ -327,9 +360,10 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                 if is_face {
                                     if let Some(last_lm) = &landmarks_cache {
-                                        let side = w.min(h);
-                                        let crop_x = (w - side) / 2;
-                                        let crop_y = (h - side) / 2;
+                                        let (crop_x, crop_y, side) = active_crop.unwrap_or_else(|| {
+                                            let s = w.min(h);
+                                            ((w - s) / 2, (h - s) / 2, s)
+                                        });
 
                                         for &idx in &EYE_INDICES {
                                             if let Some(lm) = last_lm.get(idx) {
