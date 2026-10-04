@@ -69,10 +69,11 @@ fn test_multi_face_disambiguation_largest_bbox_prioritization() {
 
     let mut engine = FaceDetectorEngine::new(model_path).expect("Failed to initialize FaceDetectorEngine");
 
-    if let Ok(img) = image::open("/tmp/1face.png") {
-        let rgb = img.to_rgb8();
-        let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-        let preprocessed = engine.preprocess(rgb.as_raw(), w, h);
+    let fixture_path = Path::new("tests/fixtures/1face.png");
+    if fixture_path.exists() {
+        let img = image::open(fixture_path).expect("Failed to open test fixture image").to_rgb8();
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let preprocessed = engine.preprocess(img.as_raw(), w, h);
         let (has_face, dominant_box) = engine.detect_faces_and_primary_box(preprocessed).expect("Inference failed");
 
         assert!(has_face, "1face.png must detect a face");
@@ -87,5 +88,7 @@ fn test_multi_face_disambiguation_largest_bbox_prioritization() {
         assert!(bbox.ymax > bbox.ymin, "ymax must exceed ymin");
         assert!(bbox.area() > 0.01, "Face box area must be significant");
         assert!(bbox.confidence >= 0.70, "Confidence must exceed 0.70");
+    } else {
+        panic!("Missing required test fixture image: {:?}", fixture_path);
     }
 }

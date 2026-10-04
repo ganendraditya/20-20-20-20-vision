@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::detector::BlinkDetector;
 use crate::timer::PresenceTimer;
-use crate::vision::{FaceDetectorEngine, FaceMeshEngine};
+use crate::vision::{FaceBoundingBox, FaceDetectorEngine, FaceMeshEngine};
 use crate::AppState;
 
 pub struct CameraManager {
@@ -271,35 +271,8 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             if face_present {
                                 // Run ONNX FaceMesh inference prioritizing the dominant user
                                 if let Some(engine) = &mut vision_engine {
-                                    // Compute crop box parameters
-                                    let (crop_x, crop_y, side) = match &dominant_bbox {
-                                        Some(bbox) => {
-                                            let bx1 = bbox.xmin * w as f32;
-                                            let by1 = bbox.ymin * h as f32;
-                                            let bx2 = bbox.xmax * w as f32;
-                                            let by2 = bbox.ymax * h as f32;
-
-                                            let bw = (bx2 - bx1).max(10.0);
-                                            let bh = (by2 - by1).max(10.0);
-                                            let cx = (bx1 + bx2) / 2.0;
-                                            let cy = (by1 + by2) / 2.0;
-
-                                            let raw_side = bw.max(bh) * 1.5;
-                                            let max_side = (w.min(h) as f32).min(raw_side);
-
-                                            let x0 = (cx - max_side / 2.0).clamp(0.0, (w as f32 - max_side).max(0.0)) as usize;
-                                            let y0 = (cy - max_side / 2.0).clamp(0.0, (h as f32 - max_side).max(0.0)) as usize;
-                                            let s = (max_side as usize).min(w.saturating_sub(x0)).min(h.saturating_sub(y0)).max(1);
-                                            (x0, y0, s)
-                                        }
-                                        None => {
-                                            let s = w.min(h);
-                                            let x0 = (w - s) / 2;
-                                            let y0 = (h - s) / 2;
-                                            (x0, y0, s)
-                                        }
-                                    };
-                                    active_crop = Some((crop_x, crop_y, side));
+                                    let crop = FaceBoundingBox::compute_crop_region(dominant_bbox.as_ref(), w, h);
+                                    active_crop = Some(crop);
 
                                     let preprocessed = engine.preprocess(raw_bytes, w, h, dominant_bbox.as_ref());
                                     if let Ok(landmarks) = engine.infer(preprocessed) {

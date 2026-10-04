@@ -25,6 +25,39 @@ impl FaceBoundingBox {
         let height = (self.ymax - self.ymin).max(0.0);
         width * height
     }
+
+    /// Single source of truth for computing square crop region (x0, y0, side) with margin
+    pub fn compute_crop_region(bbox: Option<&FaceBoundingBox>, width: usize, height: usize) -> (usize, usize, usize) {
+        match bbox {
+            Some(b) => {
+                let bx1 = b.xmin * width as f32;
+                let by1 = b.ymin * height as f32;
+                let bx2 = b.xmax * width as f32;
+                let by2 = b.ymax * height as f32;
+
+                let bw = (bx2 - bx1).max(10.0);
+                let bh = (by2 - by1).max(10.0);
+                let cx = (bx1 + bx2) / 2.0;
+                let cy = (by1 + by2) / 2.0;
+
+                // Expand by 25% margin to preserve full forehead, jawline, and ear landmarks
+                let raw_side = bw.max(bh) * 1.5;
+                let max_side = (width.min(height) as f32).min(raw_side);
+
+                // Clamp top-left origin within frame boundaries
+                let x0 = (cx - max_side / 2.0).clamp(0.0, (width as f32 - max_side).max(0.0)) as usize;
+                let y0 = (cy - max_side / 2.0).clamp(0.0, (height as f32 - max_side).max(0.0)) as usize;
+                let s = (max_side as usize).min(width.saturating_sub(x0)).min(height.saturating_sub(y0)).max(1);
+                (x0, y0, s)
+            }
+            None => {
+                let s = width.min(height);
+                let x0 = (width - s) / 2;
+                let y0 = (height - s) / 2;
+                (x0, y0, s)
+            }
+        }
+    }
 }
 
 pub struct FaceMeshEngine {
@@ -57,39 +90,7 @@ impl FaceMeshEngine {
             return input_tensor;
         }
 
-        let (crop_x, crop_y, side) = match dominant_box {
-            Some(bbox) => {
-                // Convert normalized box to pixel coordinates in full frame
-                let bx1 = bbox.xmin * width as f32;
-                let by1 = bbox.ymin * height as f32;
-                let bx2 = bbox.xmax * width as f32;
-                let by2 = bbox.ymax * height as f32;
-
-                let bw = (bx2 - bx1).max(10.0);
-                let bh = (by2 - by1).max(10.0);
-                let cx = (bx1 + bx2) / 2.0;
-                let cy = (by1 + by2) / 2.0;
-
-                // Expand by 25% margin to preserve full forehead, jawline, and ear landmarks
-                let raw_side = bw.max(bh) * 1.5;
-                let max_side = (width.min(height) as f32).min(raw_side);
-
-                // Clamp top-left origin within frame boundaries
-                let x0 = (cx - max_side / 2.0).clamp(0.0, (width as f32 - max_side).max(0.0)) as usize;
-                let y0 = (cy - max_side / 2.0).clamp(0.0, (height as f32 - max_side).max(0.0)) as usize;
-                let s = (max_side as usize).min(width.saturating_sub(x0)).min(height.saturating_sub(y0)).max(1);
-
-                (x0, y0, s)
-            }
-            None => {
-                // Default center square crop
-                let s = width.min(height);
-                let x0 = (width - s) / 2;
-                let y0 = (height - s) / 2;
-                (x0, y0, s)
-            }
-        };
-
+        let (crop_x, crop_y, side) = FaceBoundingBox::compute_crop_region(dominant_box, width, height);
         let scale = side as f32 / 192.0;
 
         for y in 0..192 {
