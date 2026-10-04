@@ -164,15 +164,19 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     assert_eq!(evt_expired2.total_blinks, 0);
 
     // 3. Test asynchronous sequential winking within 1.0s window:
-    // Left eye winks, then 400ms later right eye winks -> MUST PAIR and count +1!
+    // Left eye winks (2 frames closed, 100ms each), then 400ms later right eye winks (2 frames closed)
     now += Duration::from_millis(100);
     detector.update(&left_wink, now);
     now += Duration::from_millis(100);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(50);
     detector.update(&both_open, now); // Left wink completed
 
     now += Duration::from_millis(400); // 400ms gap (< 1.0s)
     detector.update(&right_wink, now);
     now += Duration::from_millis(100);
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(50);
     let evt_async_blink = detector.update(&both_open, now); // Right wink completed
     assert!(evt_async_blink.is_blink, "Sequential winking within 1.0s window MUST register as valid blink");
     assert_eq!(evt_async_blink.total_blinks, 1);
