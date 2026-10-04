@@ -1,5 +1,6 @@
-use vision420_lib::detector::EarCalculator;
+use vision420_lib::detector::{BlinkDetector, EarCalculator};
 use vision420_lib::vision::Landmark3D;
+use std::time::{Duration, Instant};
 
 fn create_synthetic_landmarks(left_height: f32, right_height: f32, eye_width: f32) -> Vec<Landmark3D> {
     let mut landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
@@ -171,9 +172,36 @@ fn test_benchmark_ema_alpha_noise_rejection_and_step_response() {
         let evt = detector.update(&open_lm, now);
 
         println!("{:<8.2} | {:<16} | {:<16} | {:<25}", alpha, evt.total_blinks, evt.stare_warning, if evt.total_blinks == 1 { "✅ Clean 1 Blink" } else { "❌ Mismatch" });
-
-        println!("{:<8.2} | {:<16} | {:<16} | {:<25}", alpha, evt.total_blinks, evt.stare_warning, if evt.total_blinks == 1 { "✅ Clean 1 Blink" } else { "❌ Mismatch" });
     }
 
     println!("=========================================================================================\n");
+}
+
+#[test]
+fn test_single_frame_glitch_rejection_proof() {
+    let threshold = 0.22f32;
+    let mut detector = BlinkDetector::with_alpha(threshold, 2.0, 0.40);
+    let mut now = Instant::now();
+
+    let open_eyes = create_synthetic_landmarks(3.2, 3.2, 10.0); // EAR = 0.32
+    let glitch_noise_closed = create_synthetic_landmarks(1.0, 1.0, 10.0); // EAR = 0.10 (Sudden 1-frame camera drop)
+
+    // 1. User is staring with steady open eyes
+    for _ in 0..10 {
+        detector.update(&open_eyes, now);
+        now += Duration::from_millis(67);
+    }
+
+    // 2. Camera sensor suffers an extreme single-frame optical drop/glitch (only 1 frame, 67ms)
+    let glitch_evt = detector.update(&glitch_noise_closed, now);
+    assert!(!glitch_evt.is_blink);
+    now += Duration::from_millis(67);
+
+    // 3. Next frame camera immediately recovers to open eyes
+    let recover_evt = detector.update(&open_eyes, now);
+    
+    println!("\n[PROOF TEST: Single-Frame Optical Glitch Rejection]");
+    println!("Total Blinks registered after 1-frame camera glitch: {}", recover_evt.total_blinks);
+    assert_eq!(recover_evt.total_blinks, 0, "Single-frame camera glitch must be rejected with 0 blinks!");
+    assert!(!recover_evt.is_blink, "Single-frame glitch must not trigger a blink event!");
 }
