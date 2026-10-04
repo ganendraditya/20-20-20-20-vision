@@ -167,6 +167,21 @@ $$\text{EMA}_t = \alpha \cdot \text{EAR}_t + (1 - \alpha) \cdot \text{EMA}_{t-1}
    * If left and right eyes complete blinks within **$\le 1.0\text{ second}$**, the pair resolves into **$+1\text{ valid blink}$**.
    * Unpaired unilateral winks (e.g. winking only left eye) expire after $1.0\text{s}$ and are discarded.
 
+### 3.5 Head Pose Yaw Symmetry Gate (Zero-Model Geometric Filter)
+
+Generic face detectors occasionally fire on non-frontal head angles, such as the back of the head, downward neck flexion, or steep side profiles where only one eye is visible.
+
+420vision computes the **Nasal-Interocular Yaw Asymmetry Ratio** directly from canonical FaceMesh points:
+* Nose Tip: Landmark `1` ($X_{\text{nose}}$)
+* Left Eye Outer Corner: Landmark `33` ($X_{\text{left}}$)
+* Right Eye Outer Corner: Landmark `263` ($X_{\text{right}}$)
+
+$$\text{Midpoint} = \frac{X_{\text{left}} + X_{\text{right}}}{2.0}, \quad \text{Width} = |X_{\text{right}} - X_{\text{left}}|$$
+$$\text{Yaw Ratio} = \frac{|X_{\text{nose}} - \text{Midpoint}|}{\text{Width}}$$
+
+* **Frontal / Active Screen Gaze ($\text{Yaw Ratio} \le 0.25$):** User is naturally looking at the display. Full blink and presence processing active.
+* **Severe Side Profile / Looking Away ($\text{Yaw Ratio} > 0.35$):** User turned their head sideways ($> 35^{\circ}$) or back of head is visible. Blink triggers are suppressed and state cleanly transitions to `Away / Paused` without spawning extra AI models.
+
 ---
 
 ## 4. Presence, Stare Warning & Timer Architecture
