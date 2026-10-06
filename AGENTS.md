@@ -103,33 +103,50 @@ Derived from `koma` and `not-notebooklm`:
 - **Ask via the `question` tool:** Use the interactive question tool with clear options rather than guessing the user's intent.
 - **Confirm before irreversible actions:** Never delete files, change major architectural patterns, rewrite public contracts, or auto-merge without explicit confirmation.
 
-### 3. Execution, Timeouts & Heavy Workflows (CLI & Review)
+### 3. Strict Git Invariant: FORBIDDEN AUTO-COMMIT / AUTO-PUSH / NAKED MERGE
+- **Strict User Authorization Gate:** The agent is **STRICTLY FORBIDDEN** from running `git commit`, `git push`, creating tags, or merging branches autonomously without an **explicit instruction** from the user ("commit now", "push now", "ok commit", etc.).
+- **Mandatory Pull Request Lifecycle (No Naked Merges into `main`):**
+  - Every non-trivial feature, refactor, or bugfix **MUST** transition through a formal GitHub Pull Request (`gh pr create`) before being merged into `main`. Direct or naked branch merges into `main` without an associated PR are strictly forbidden.
+  - **Standard Engineering Lifecycle:**
+    1. **Branch & Implement:** Develop on an isolated branch (`feature/<name>-#<id>`, `fix/<name>-#<id>`).
+    2. **Local Verification:** Run full test suites (`cargo test`, `npm run tauri build -- --no-bundle`).
+    3. **Push & Open PR:** Push the feature branch and open a PR via `gh pr create` linking the relevant issue (`Closes #<id>`).
+    4. **AI Code Review on PR:** Execute `ocr review --audience agent --from main --to <branch>` to review the PR diff cleanly.
+    5. **Dialectical Verification & Scorecard:** Present structured findings to the user (Confirmed Bugs vs False Positives). Never apply fixes silently or sycophantically.
+    6. **Surgical Resolution on Branch:** With user approval, apply verified fixes with surgical precision on the branch.
+    7. **User Authorization Gate:** Present the clean PR status and await explicit user instruction to merge.
+    8. **Merge & Sync:** Merge via `gh pr merge --squash --delete-branch`, synchronize `docs/TECHNICAL_STACK_AND_PIPELINES.md`, and pull updated `main`.
+- **Report Status First:** Upon task completion, present a concise summary of changes, test suite results, and linter status, and await user instruction. Inquiring for confirmation ("Would you like to commit?") is permitted, but executing commit/push without explicit confirmation is prohibited.
+- **Living Architecture Specification Synchronization:** Whenever system architecture, engine dependencies, or core operational workflows are committed or merged into `main`, `docs/TECHNICAL_STACK_AND_PIPELINES.md` **MUST BE SYNCHRONIZED** within the same PR so the documentation remains an accurate reference for continuous study.
+- **Strict English Consistency Across Repository Artefacts:** All documentation files (`*.md`), technical specifications, GitHub Issues, Pull Request descriptions, Git commit messages, and GitHub Release notes **MUST BE WRITTEN EXCLUSIVELY IN CLEAR, CONCISE ENGLISH**. Maintain strict language consistency across all repository artefacts for international open-source parity.
+
+### 4. Code Review Scientific Verification Protocol (Anti-Hallucinated Findings)
+When conducting AI Code Reviews (via `ocr review`, dual LLM evaluations, or manual diff inspection), the agent **MUST NOT ACCEPT REVIEWER FINDINGS AT FACE VALUE OR ACT AS A SYCOPHANT TO REVIEW BOTS**. Follow a mandatory, evidence-backed verification protocol before touching any code:
+
+- **Mandatory User Presentation Before Applying Changes:**
+  - The agent is **STRICTLY FORBIDDEN** from unilaterally modifying code, committing, or merging fixes immediately after receiving automated review comments without first presenting the findings dialectically to the user.
+  - Present a structured scorecard: categorize items into **Hard Blockers / Confirmed Bugs** vs **False Positives / Rejected Claims** vs **Architectural Optimizations**, complete with reproduction proof.
+
+- **Step 1: Problem Validity Verification (Is this a genuine defect or a hallucination/misunderstanding?):**
+  - **Never Assume Validity:** Treat reviewer comments with healthy skepticism. LLM reviewers frequently misread token-truncated code, misunderstand project conventions, or flag stylistic non-issues as critical bugs.
+  - **Define the Concrete Failure Scenario:** *"Under what exact inputs, camera angles, or concurrency state does this failure occur, and what is the exact stack trace or measurable impact?"*
+  - **Execute an Empirical Reproduction Script:** Run a minimal terminal script, synthetic frame assertion, or benchmark harness to test the failure hypothesis.
+  - **Classification:**
+    - If reproduction confirms an actual error, crash, memory leak, or measurable accuracy degradation: classify as **CONFIRMED REAL ISSUE** with log/terminal evidence.
+    - If reproduction passes cleanly, or the claim is based on truncated files, obsolete syntax, or false assumptions: reject the finding dialectically with proof as **FALSE POSITIVE / REJECTED**. Do not modify code for rejected items.
+
+- **Step 2: Solution Validity & Orthogonality Verification:**
+  - **Never Blindly Apply Suggested Diff:** Review bot fix suggestions are often naive, incomplete, or break neighboring invariants. Critically evaluate whether the suggested fix genuinely addresses the root cause or just silences a linter.
+  - **Surgical Implementation:** Apply the verified solution with minimal footprint.
+  - **Dual Verification:**
+    1. Re-run the reproduction script from Step 1 to verify the defect is genuinely eliminated.
+    2. Run full test suites (`cargo test`, `npm run tauri build -- --no-bundle`) to verify zero regressions across neighboring systems.
+
+### 5. Execution, Timeouts & Heavy Workflows (CLI & Review)
 - **Harness Shell Timeout Vigilance:** The default harness shell timeout (120s / 2 minutes) is strictly inadequate for heavy tasks, reasoning models (Gemini Pro, Claude Sonnet/Opus), or large builds.
   - When invoking `ocr review`, builds, or test suites, **explicitly pass `timeout: 300000` to `600000` (5–10 minutes)**. Never let default 120s cutoff waste tokens or interrupt reasoning mid-stream.
   - For `ocr review`, pass `--effort low` and `--exclude 'src-tauri/tests/*,README.md'` to prevent unbounded roundtrips while keeping token usage bounded.
   - Always direct heavy CLI outputs to a persistent file (`--output <path>`) so results are safely preserved.
-
-### 4. Strict Branch & Merge Protocol
-- **Every task must be developed on an isolated branch:** `feature/<task-name>` or `fix/<bug-name>`.
-- **STAY on the branch:** Never auto-merge or close issues until the user explicitly tests, reviews, and approves the change.
-- **Never auto-merge without presenting the full verification scorecard first:** The agent is strictly prohibited from running `gh pr merge` immediately after a PR is opened. Always present the 2-step verification results and ask for explicit user confirmation.
-
-### 5. Code Review Scientific Verification Protocol (Anti-Hallucinated Findings)
-When conducting AI Code Reviews (via `ocr review`, dual LLM evaluations, or manual diff inspection), the agent **MUST NOT ACCEPT REVIEWER FINDINGS AT FACE VALUE**. Follow this mandatory two-step verification protocol before touching code or merging:
-- **Step 1: Problem Validity Verification (Is this a genuine issue or hallucinated?):**
-  - Define the concrete scenario: *"Under what specific action or edge case does this failure occur, and what is the exact error impact?"*
-  - Execute a minimal reproduction script or terminal command (`cargo test`, synthetic frame injection, or benchmark) to test the hypothesis.
-  - If the reproduction triggers an error, crash, memory leak, or measurable accuracy degradation: classify as **CONFIRMED REAL ISSUE** with log evidence.
-  - If the reproduction passes cleanly or the claim relies on obsolete assumptions: reject the finding dialectically as **FALSE POSITIVE / REJECTED** with explicit proof.
-- **Step 2: Solution Validity & Orthogonality Verification:**
-  - Apply the proposed fix with surgical precision.
-  - Re-run the reproduction test to verify the issue is genuinely resolved.
-  - **Orthogonality Check:** Verify that the fix does **NOT introduce regressions** in surrounding modules (run full test suite `cargo test`, build release `npm run tauri build -- --no-bundle`).
-- **Reporting Format to User:**
-  Always report findings structured clearly into two distinct sections before asking for merge permission:
-  1. `### 1. Temuan False Positive / Ditolak (Hallucinated Findings) ❌` (with reproduction proof of why it's rejected).
-  2. `### 2. Temuan Nyata & Sudah Diperbaiki Secara Bedah (Confirmed Real Issues & Fixed) ✅` (with scenario, reproduction proof, and surgical fix).
-  3. `### 3. Verifikasi Pasca-Perbaikan (Orthogonality Check)` (with test pass status).
 
 ---
 

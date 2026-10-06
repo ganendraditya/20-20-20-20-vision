@@ -92,3 +92,29 @@ fn test_multi_face_disambiguation_largest_bbox_prioritization() {
         panic!("Missing required test fixture image: {:?}", fixture_path);
     }
 }
+
+#[test]
+fn test_inspect_multiface_image_detections() {
+    let model_path = Path::new("../models/ultraface.onnx");
+    if !model_path.exists() {
+        return;
+    }
+
+    let mut engine = FaceDetectorEngine::new(model_path).unwrap();
+
+    for file in &["3faces.png", "4faces.png"] {
+        let p = format!("tests/fixtures/{}", file);
+        if let Ok(img) = image::open(&p) {
+            let rgb = img.to_rgb8();
+            let (w, h) = (rgb.width() as usize, rgb.height() as usize);
+            let pre = engine.preprocess(rgb.as_raw(), w, h);
+            let (has_face, dominant) = engine.detect_faces_and_primary_box(pre).unwrap();
+            println!("\n=== Multi-Face Inspection on {} ===", file);
+            println!("Face detected: {}", has_face);
+            if let Some(b) = dominant {
+                println!("Dominant box selected: [{:.3}, {:.3}, {:.3}, {:.3}], area={:.4}, conf={:.3}",
+                    b.xmin, b.ymin, b.xmax, b.ymax, b.area(), b.confidence);
+            }
+        }
+    }
+}
