@@ -1,4 +1,4 @@
-# 420vision (20-20-20-20 Vision)
+# 420vision (20/20 20/20 Vision)
 
 > An ultra-lightweight, native Menu Bar / System Tray reminder & assistant for dry eye sufferers using on-device computer vision.
 
@@ -68,15 +68,16 @@ irm https://raw.githubusercontent.com/ganendraditya/20-20-20-20-vision/main/unin
 ## Architecture & System Design
 
 - **Engine:** Pure Rust native daemon compiled with zero garbage collector.
-- **Vision Inference:** Quantized MediaPipe FaceMesh running on ONNX Runtime (`ort`) with hardware acceleration (DirectML / CoreML / CPU).
-- **Mathematical EAR:** Soukupová & Čech (2016) formula with Exponential Moving Average (EMA) smoothing to eliminate glasses glare jitter.
+- **Vision Inference:** Two-stage edge pipeline combining UltraFace RFB-320 gatekeeper and MediaPipe FaceMesh (468 3D landmarks) running on ONNX Runtime (`ort`).
+- **Mathematical EAR:** Soukupová & Čech (2016) formula with Asymmetric Impulse EMA filter to eliminate glasses glare jitter and capture fast blinks.
+- **Multi-Subject Stability:** Spatial inertia and hysteresis tracking to prevent flickering in crowded rooms.
 - **Strict Always-Yield Etiquette:** Never monopolizes the webcam; instantly yields when Zoom, Meet, Teams, or FaceTime requests the camera.
 - **Minimalist Tray Popover UI:** Native OS webview with 4 tabs:
   1. **Home:** Big master toggle, live BPM, and 20-min countdown.
   2. **Camera Test:** PhotoBooth sandbox with isolated validation counter.
   3. **Stats:** Local SQLite (`analytics.db`) compliance trends.
-  4. **Settings:** Device selector and 5-second automatic eye shape calibration.
-- **Power & Resource Budget:** $<30$ MB RAM, $<3\%$ CPU (throttled to 15 FPS, drops to 2 FPS when away). Zero video recording, 100% private.
+  4. **Settings:** Device selector, 5-second automatic eye shape calibration, and Smart Keep-Awake toggle.
+- **Power & Resource Budget:** $<30$ MB RAM, $<3\%$ CPU (throttled to 15 FPS, drops to 5 FPS when away). Zero video recording, 100% private.
 
 ---
 
