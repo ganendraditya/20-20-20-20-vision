@@ -176,8 +176,13 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
         };
 
-        // Initialize BlinkDetector and PresenceTimer
-        let mut blink_detector = BlinkDetector::new(0.22, 8.0);
+        // Initialize BlinkDetector and PresenceTimer with loaded config threshold
+        let initial_config = {
+            let state_mutex = app_handle.state::<Mutex<AppState>>();
+            let state = state_mutex.lock().unwrap();
+            state.config.clone()
+        };
+        let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
 
         // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
@@ -187,16 +192,18 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         loop {
             let now = Instant::now();
 
-            // Check state
-            let (is_running, selected_index, is_sandbox_viewing) = {
+            // Check state & dynamically synchronize threshold from config
+            let (is_running, selected_index, is_sandbox_viewing, active_threshold) = {
                 let state_mutex = app_handle.state::<Mutex<AppState>>();
                 let state = state_mutex.lock().unwrap();
                 (
                     state.status.is_running,
                     state.selected_camera_index,
                     state.is_sandbox_viewing,
+                    state.config.ear_threshold,
                 )
             };
+            blink_detector.set_threshold(active_threshold);
 
             if !is_running {
                 cam_manager.release_camera();
