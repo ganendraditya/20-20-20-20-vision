@@ -184,6 +184,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         };
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
+        let mut face_tracker = crate::vision::FaceTracker::default();
 
         // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
         let mut eye_points_buf = Vec::with_capacity(EYE_INDICES.len());
@@ -208,6 +209,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             if !is_running {
                 cam_manager.release_camera();
                 current_cam_index = usize::MAX;
+                face_tracker.reset();
                 thread::sleep(Duration::from_millis(1000));
                 continue;
             }
@@ -258,11 +260,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Gatekeeper: Verify facial presence & extract primary dominant bounding box (Issue #43)
+                            // Gatekeeper: Verify facial presence & extract primary dominant bounding box with Sticky Tracking (Issue #43 & #52)
                             let (face_present, dominant_bbox) = if let Some(detector) = &mut face_detector {
                                 let det_input = detector.preprocess(raw_bytes, w, h);
-                                match detector.detect_faces_and_primary_box(det_input) {
-                                    Ok((detected, bbox)) => (detected, bbox),
+                                match detector.detect_faces_and_track(det_input, Some(&mut face_tracker)) {
+                                    Ok((detected, _, bbox)) => (detected, bbox),
                                     Err(e) => {
                                         eprintln!("[420vision::vision] FaceDetector error: {}", e);
                                         (true, None) // Fail-safe: fallback to FaceMesh on detector error
