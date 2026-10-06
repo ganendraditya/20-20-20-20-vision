@@ -241,9 +241,9 @@ pub fn run() {
             capture::run_capture_loop(app.handle().clone());
 
             // Build Tray Menu items with clear labels
-            let open_item = MenuItem::with_id(app, "open_window", "👁️ Open 420vision", true, None::<&str>)?;
-            let toggle_item = MenuItem::with_id(app, "toggle_pause", "⏸ Turn Monitoring OFF / ON", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "❌ Quit 420vision", true, None::<&str>)?;
+            let open_item = MenuItem::with_id(app, "open_window", "Open 420vision", true, None::<&str>)?;
+            let toggle_item = MenuItem::with_id(app, "toggle_pause", "Turn Monitoring OFF / ON", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit 420vision", true, None::<&str>)?;
             
             let tray_menu = Menu::with_items(app, &[
                 &open_item,

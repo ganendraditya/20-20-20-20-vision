@@ -70,7 +70,7 @@ impl CameraManager {
             let req = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(fmt));
             if let Ok(mut cam) = Camera::new(idx.clone(), req) {
                 if let Ok(_) = cam.open_stream() {
-                    println!("[420vision::camera] ✅ Stream opened successfully with format: {:?}", fmt);
+                    println!("[420vision::camera] Stream opened successfully with format: {:?}", fmt);
                     self.camera = Some(cam);
                     self.is_paused_by_conflict = false;
                     return Ok(());
@@ -154,11 +154,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         let model_path = get_facemesh_model_path();
         let mut vision_engine = match FaceMeshEngine::new(&model_path) {
             Ok(engine) => {
-                println!("[420vision::vision] ✅ Loaded FaceMesh model from {:?}", model_path);
+                println!("[420vision::vision] Loaded FaceMesh model from {:?}", model_path);
                 Some(engine)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] ⚠️ Could not load FaceMesh model ({:?}): {}", model_path, e);
+                eprintln!("[420vision::vision] Could not load FaceMesh model ({:?}): {}", model_path, e);
                 None
             }
         };
@@ -167,11 +167,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         let detector_path = get_facedetector_model_path();
         let mut face_detector = match FaceDetectorEngine::new(&detector_path) {
             Ok(detector) => {
-                println!("[420vision::vision] ✅ Loaded UltraFace detector from {:?}", detector_path);
+                println!("[420vision::vision] Loaded UltraFace detector from {:?}", detector_path);
                 Some(detector)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] ⚠️ Could not load UltraFace detector ({:?}): {}", detector_path, e);
+                eprintln!("[420vision::vision] Could not load UltraFace detector ({:?}): {}", detector_path, e);
                 None
             }
         };
@@ -306,7 +306,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                         // Trigger stare warning notification if prolonged staring
                                         if event.stare_warning {
-                                            println!("[420vision::alert] 👁️ Stare warning triggered (>8s without blink)");
+                                            println!("[420vision::alert] Stare warning triggered (>8s without blink)");
                                             crate::notifier::Notifier::notify_stare_warning();
                                             crate::notifier::AudioPlayer::play_stare_warning();
                                         }
@@ -323,7 +323,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             // Run presence timer
                             let presence_state = presence_timer.update(is_face, now);
                             if presence_state.break_triggered {
-                                println!("[420vision::alert] ✨ 20-20-20 Break time triggered!");
+                                println!("[420vision::alert] 20-20-20-20 Break time triggered!");
                                 crate::notifier::Notifier::notify_break_time();
                                 crate::notifier::AudioPlayer::play_break_chime();
                             }
@@ -409,7 +409,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
                         cam_manager.release_camera();
                         cam_manager.is_paused_by_conflict = true;
-                        update_status_text(&app_handle, "⚠️ Camera Paused (In Use)");
+                        update_status_text(&app_handle, "Camera Paused (In Use)");
                         println!("[420vision::camera] Hardware contention detected (Zoom/Meet/FaceTime active). Yielding camera.");
                     }
                     Err(_) => {
@@ -417,7 +417,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                     }
                 }
             } else {
-                update_status_text(&app_handle, "⚠️ No Camera Detected");
+                update_status_text(&app_handle, "No Camera Detected");
                 thread::sleep(Duration::from_secs(5));
             }
         }

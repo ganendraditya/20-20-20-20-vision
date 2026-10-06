@@ -10,33 +10,33 @@ BIN_DIR="${HOME}/.local/bin"
 LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
 PLIST_FILE="${LAUNCH_AGENTS_DIR}/com.ganendraditya.vision420.plist"
 
-echo "🌸 Installing 420vision (20-20-20-20 Vision Assistant)..."
+echo "Installing 420vision (20-20-20-20 Vision Assistant)..."
 
 # Detect OS & Architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
 if [ "$OS" != "darwin" ]; then
-    echo "❌ Error: 420vision currently provides native desktop builds for macOS and Windows."
+    echo "Error: 420vision currently provides native desktop builds for macOS and Windows."
     exit 1
 fi
 
 if [ "$ARCH" != "arm64" ]; then
-    echo "⚠️ Warning: Intel Mac (x86_64) detected. Compiling/running via Rosetta or Universal binary."
+    echo "Warning: Intel Mac (x86_64) detected. Compiling/running via Rosetta or Universal binary."
 fi
 
 # Fetch latest release tag
-echo "🔍 Fetching latest release from GitHub..."
+echo "Fetching latest release from GitHub..."
 RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)
 
 if [ -z "$RELEASE_JSON" ] || ! echo "$RELEASE_JSON" | grep -q "tag_name"; then
-    echo "⚠️ No published release tag found. Using fallback master/v0.1.0."
+    echo "No published release tag found. Using fallback master/v0.1.0."
     LATEST_TAG="v0.1.0"
 else
     LATEST_TAG=$(echo "$RELEASE_JSON" | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
 fi
 
-echo "📦 Selected version: ${LATEST_TAG}"
+echo "Selected version: ${LATEST_TAG}"
 
 TAR_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/420vision-macos-arm64.tar.gz"
 
@@ -45,15 +45,15 @@ mkdir -p "${INSTALL_DIR}"
 mkdir -p "${BIN_DIR}"
 
 # Download & Extract
-echo "⬇️ Downloading native macOS binary..."
+echo "Downloading native macOS binary..."
 TEMP_TAR="/tmp/420vision-${LATEST_TAG}.tar.gz"
 
 if curl -fL --progress-bar -o "${TEMP_TAR}" "${TAR_URL}" 2>/dev/null; then
     tar -xzf "${TEMP_TAR}" -C "${INSTALL_DIR}"
     rm -f "${TEMP_TAR}"
 else
-    echo "⚠️ Pre-built release binary not yet published on GitHub Releases."
-    echo "🔨 Falling back to local/manual installation layout."
+    echo "Pre-built release binary not yet published on GitHub Releases."
+    echo "Falling back to local/manual installation layout."
     
     # If ran from inside the repo clone, copy current binary if available
     if [ -f "src-tauri/target/release/420vision" ]; then
@@ -64,7 +64,7 @@ else
     elif [ -f "dist-release/420vision" ]; then
         cp -r dist-release/* "${INSTALL_DIR}/"
     else
-        echo "❌ Error: Please build with 'npm run tauri build -- --no-bundle' or download release tag."
+        echo "Error: Please build with 'npm run tauri build -- --no-bundle' or download release tag."
         exit 1
     fi
 fi
@@ -88,7 +88,7 @@ if [ -n "$SHELL_CONFIG" ] && [ -f "$SHELL_CONFIG" ]; then
 fi
 
 # Setup macOS LaunchAgent for auto-start at login
-echo "🚀 Configuring auto-start in Menu Bar..."
+echo "Configuring auto-start in Menu Bar..."
 mkdir -p "${LAUNCH_AGENTS_DIR}"
 cat <<EOF > "${PLIST_FILE}"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -115,8 +115,8 @@ launchctl load -w "${PLIST_FILE}" 2>/dev/null || true
 
 echo ""
 echo "=========================================================="
-echo "✨ 420vision successfully installed!"
-echo "📍 Installed to: ${INSTALL_DIR}"
-echo "🔗 CLI Launcher: ${BIN_DIR}/420vision"
-echo "🌸 The app is now running in your Menu Bar (top right)."
+echo "420vision successfully installed!"
+echo "Installed to: ${INSTALL_DIR}"
+echo "CLI Launcher: ${BIN_DIR}/420vision"
+echo "The app is now running in your Menu Bar (top right)."
 echo "=========================================================="

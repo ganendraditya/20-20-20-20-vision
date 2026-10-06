@@ -168,7 +168,7 @@ function setupIPC() {
 
   // Load current threshold on init
   invoke<AppConfig>("get_config").then((cfg) => {
-    if (calResult) calResult.textContent = `Threshold saat ini: ${cfg.ear_threshold.toFixed(3)}`;
+    if (calResult) calResult.textContent = `Current threshold: ${cfg.ear_threshold.toFixed(3)}`;
   }).catch(console.error);
 
   calibrateBtn?.addEventListener("click", async () => {
@@ -181,7 +181,7 @@ function setupIPC() {
       await invoke("start_calibration");
 
       // Stage 1: Keep Eyes Open Naturally for 3 seconds (collect sample every 100ms)
-      if (calInstruction) calInstruction.textContent = "1/2: Tatap layar wajar (Mata Terbuka)...";
+      if (calInstruction) calInstruction.textContent = "1/2: Look at screen naturally (Eyes Open)...";
       if (calFill) {
         calFill.style.background = "var(--accent)";
         calFill.style.width = "0%";
@@ -196,7 +196,7 @@ function setupIPC() {
       }
 
       // Stage 2: Close Eyes Comfortably for 2 seconds (collect sample every 100ms)
-      if (calInstruction) calInstruction.textContent = "2/2: Tutup mata santai (Mata Tertutup)...";
+      if (calInstruction) calInstruction.textContent = "2/2: Close eyes comfortably (Eyes Closed)...";
       if (calFill) calFill.style.background = "var(--green)";
 
       for (let i = 31; i <= 50; i++) {
@@ -210,11 +210,11 @@ function setupIPC() {
       // Finalize calibration and display personalized threshold
       const res = await invoke<CalibrationResult>("finalize_calibration");
       if (calInstruction) {
-        calInstruction.textContent = res.success ? "✨ Kalibrasi Selesai!" : "⚠️ Kalibrasi Gagal";
+        calInstruction.textContent = res.success ? "Calibration Complete" : "Calibration Failed";
       }
       if (calResult) {
         calResult.textContent = res.success
-          ? `Personal Threshold: ${res.threshold.toFixed(3)} (Tersimpan)`
+          ? `Personal Threshold: ${res.threshold.toFixed(3)} (Saved)`
           : res.message;
       }
     } catch (e) {
@@ -288,9 +288,9 @@ async function loadStats() {
     const streakEl = document.getElementById("stat-streak-msg");
     if (streakEl) {
       if (today.breaks_completed > 0) {
-        streakEl.textContent = `🔥 ${today.breaks_completed} break(s) completed today!`;
+        streakEl.textContent = `${today.breaks_completed} break(s) completed today!`;
       } else {
-        streakEl.textContent = `🌱 Ready to protect your eyes today`;
+        streakEl.textContent = `Ready to protect your eyes today`;
       }
     }
   } catch (e) {
@@ -372,7 +372,7 @@ async function listenToCameraFrames() {
       // Update HUD metrics
       if (earText) earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
       if (faceText) {
-        faceText.textContent = data.is_face_detected ? "Muka: Terdeteksi" : "Muka: Tidak Ada";
+        faceText.textContent = data.is_face_detected ? "Face: Detected" : "Face: Not Found";
         faceText.style.color = data.is_face_detected ? "#10b981" : "#ef4444";
       }
 
