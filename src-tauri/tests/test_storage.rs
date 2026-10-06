@@ -10,6 +10,7 @@ fn test_config_save_and_load_lifecycle() {
     config.ear_threshold = 0.285;
     config.selected_camera_index = 2;
     config.sound_enabled = false;
+    config.keep_awake_enabled = false;
 
     // Save
     config.save_to_path(&config_path).expect("Save should succeed");
@@ -21,6 +22,7 @@ fn test_config_save_and_load_lifecycle() {
     assert_eq!(loaded.ear_threshold, 0.285);
     assert_eq!(loaded.selected_camera_index, 2);
     assert!(!loaded.sound_enabled);
+    assert!(!loaded.keep_awake_enabled);
 }
 
 #[test]

@@ -45,6 +45,7 @@ interface AppConfig {
   selected_camera_index: number;
   sound_enabled: boolean;
   stare_alert_enabled: boolean;
+  keep_awake_enabled: boolean;
 }
 
 interface CalibrationResult {
@@ -225,6 +226,29 @@ function setupIPC() {
       if (calibrateBtn) calibrateBtn.removeAttribute("disabled");
     }
   });
+
+  // Settings Checkboxes (Sound, Stare Alert, Smart Keep-Awake)
+  const chkSound = document.getElementById("chk-sound") as HTMLInputElement | null;
+  const chkStare = document.getElementById("chk-stare") as HTMLInputElement | null;
+  const chkKeepAwake = document.getElementById("chk-keep-awake") as HTMLInputElement | null;
+
+  invoke<AppConfig>("get_config").then((cfg) => {
+    if (chkSound) chkSound.checked = cfg.sound_enabled;
+    if (chkStare) chkStare.checked = cfg.stare_alert_enabled;
+    if (chkKeepAwake) chkKeepAwake.checked = cfg.keep_awake_enabled;
+  }).catch(console.error);
+
+  const saveSettings = () => {
+    invoke("update_config", {
+      soundEnabled: chkSound?.checked ?? null,
+      stareAlertEnabled: chkStare?.checked ?? null,
+      keepAwakeEnabled: chkKeepAwake?.checked ?? null,
+    }).catch(console.error);
+  };
+
+  chkSound?.addEventListener("change", saveSettings);
+  chkStare?.addEventListener("change", saveSettings);
+  chkKeepAwake?.addEventListener("change", saveSettings);
 
   // Camera selector change
   const camSelect = document.getElementById("sel-camera") as HTMLSelectElement | null;

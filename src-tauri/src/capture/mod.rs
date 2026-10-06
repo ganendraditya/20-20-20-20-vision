@@ -185,6 +185,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
         let mut face_tracker = crate::vision::FaceTracker::default();
+        let mut sleep_blocker = crate::notifier::SleepBlocker::new();
 
         // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
         let mut eye_points_buf = Vec::with_capacity(EYE_INDICES.len());
@@ -193,8 +194,8 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         loop {
             let now = Instant::now();
 
-            // Check state & dynamically synchronize threshold from config
-            let (is_running, selected_index, is_sandbox_viewing, active_threshold) = {
+            // Check state & dynamically synchronize threshold and power config
+            let (is_running, selected_index, is_sandbox_viewing, active_threshold, keep_awake_enabled) = {
                 let state_mutex = app_handle.state::<Mutex<AppState>>();
                 let state = state_mutex.lock().unwrap();
                 (
@@ -202,6 +203,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                     state.selected_camera_index,
                     state.is_sandbox_viewing,
                     state.config.ear_threshold,
+                    state.config.keep_awake_enabled,
                 )
             };
             blink_detector.set_threshold(active_threshold);
@@ -210,6 +212,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 cam_manager.release_camera();
                 current_cam_index = usize::MAX;
                 face_tracker.reset();
+                sleep_blocker.release();
                 thread::sleep(Duration::from_millis(1000));
                 continue;
             }
@@ -320,6 +323,15 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                 blink_detector.update(&[], now);
                             }
 
+                            // Presence-Aware Smart Keep-Awake (Issue #62):
+                            // Hold display awake only while user is actively looking at screen.
+                            // Immediately release assertion when user looks away or leaves.
+                            if is_face && keep_awake_enabled {
+                                sleep_blocker.acquire();
+                            } else {
+                                sleep_blocker.release();
+                            }
+
                             // Run presence timer
                             let presence_state = presence_timer.update(is_face, now);
                             if presence_state.break_triggered {
@@ -409,14 +421,17 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
                         cam_manager.release_camera();
                         cam_manager.is_paused_by_conflict = true;
+                        sleep_blocker.release();
                         update_status_text(&app_handle, "Camera Paused (In Use)");
                         println!("[420vision::camera] Hardware contention detected (Zoom/Meet/FaceTime active). Yielding camera.");
                     }
                     Err(_) => {
+                        sleep_blocker.release();
                         thread::sleep(Duration::from_millis(500));
                     }
                 }
             } else {
+                sleep_blocker.release();
                 update_status_text(&app_handle, "No Camera Detected");
                 thread::sleep(Duration::from_secs(5));
             }
