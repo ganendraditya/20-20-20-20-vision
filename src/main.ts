@@ -37,8 +37,27 @@ interface DailyCompliance {
   screen_minutes: number;
 }
 
+interface AppConfig {
+  ear_threshold: number;
+  stare_limit_secs: number;
+  break_target_minutes: number;
+  break_duration_seconds: number;
+  selected_camera_index: number;
+  sound_enabled: boolean;
+  stare_alert_enabled: boolean;
+}
+
+interface CalibrationResult {
+  success: boolean;
+  threshold: number;
+  message: string;
+}
+
 let sandboxBlinks = 0;
 let wasBlinking = false;
+let currentEar = 0.0;
+let isFaceDetected = false;
+let isCalibrating = false;
 let unlistenCameraFrames: (() => void) | null = null;
 
 window.addEventListener("beforeunload", () => {
@@ -140,14 +159,70 @@ function setupIPC() {
     }
   });
 
-  // Calibrate button
+  // Calibrate button & 5-Second Interactive Wizard Flow
   const calibrateBtn = document.getElementById("btn-calibrate");
+  const calBox = document.getElementById("calibration-status-box");
+  const calInstruction = document.getElementById("calibration-instruction");
+  const calFill = document.getElementById("calibration-progress-fill");
+  const calResult = document.getElementById("calibration-result-text");
+
+  // Load current threshold on init
+  invoke<AppConfig>("get_config").then((cfg) => {
+    if (calResult) calResult.textContent = `Threshold saat ini: ${cfg.ear_threshold.toFixed(3)}`;
+  }).catch(console.error);
+
   calibrateBtn?.addEventListener("click", async () => {
+    if (isCalibrating) return;
+    isCalibrating = true;
+
     try {
-      const res = await invoke<string>("start_calibration");
-      alert(res);
+      if (calBox) calBox.style.display = "flex";
+      if (calibrateBtn) calibrateBtn.setAttribute("disabled", "true");
+      await invoke("start_calibration");
+
+      // Stage 1: Keep Eyes Open Naturally for 3 seconds (collect sample every 100ms)
+      if (calInstruction) calInstruction.textContent = "1/2: Tatap layar wajar (Mata Terbuka)...";
+      if (calFill) {
+        calFill.style.background = "var(--accent)";
+        calFill.style.width = "0%";
+      }
+
+      for (let i = 1; i <= 30; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (isFaceDetected && currentEar > 0.05) {
+          await invoke("submit_calibration_sample", { stage: "open", ear: currentEar });
+        }
+        if (calFill) calFill.style.width = `${(i / 50) * 100}%`;
+      }
+
+      // Stage 2: Close Eyes Comfortably for 2 seconds (collect sample every 100ms)
+      if (calInstruction) calInstruction.textContent = "2/2: Tutup mata santai (Mata Tertutup)...";
+      if (calFill) calFill.style.background = "var(--green)";
+
+      for (let i = 31; i <= 50; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (isFaceDetected && currentEar > 0.01) {
+          await invoke("submit_calibration_sample", { stage: "closed", ear: currentEar });
+        }
+        if (calFill) calFill.style.width = `${(i / 50) * 100}%`;
+      }
+
+      // Finalize calibration and display personalized threshold
+      const res = await invoke<CalibrationResult>("finalize_calibration");
+      if (calInstruction) {
+        calInstruction.textContent = res.success ? "✨ Kalibrasi Selesai!" : "⚠️ Kalibrasi Gagal";
+      }
+      if (calResult) {
+        calResult.textContent = res.success
+          ? `Personal Threshold: ${res.threshold.toFixed(3)} (Tersimpan)`
+          : res.message;
+      }
     } catch (e) {
-      console.error("Failed to start calibration:", e);
+      console.error("Calibration failed:", e);
+      if (calInstruction) calInstruction.textContent = "Error during calibration";
+    } finally {
+      isCalibrating = false;
+      if (calibrateBtn) calibrateBtn.removeAttribute("disabled");
     }
   });
 
@@ -290,6 +365,9 @@ async function listenToCameraFrames() {
 
         canvas.style.display = hasDrawn ? "block" : "none";
       }
+
+      currentEar = data.avg_ear;
+      isFaceDetected = data.is_face_detected;
 
       // Update HUD metrics
       if (earText) earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;

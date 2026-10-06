@@ -23,14 +23,26 @@ pub struct AppStatus {
     pub status_text: String,
 }
 
+use crate::storage::AppConfig;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationResult {
+    pub success: bool,
+    pub threshold: f32,
+    pub message: String,
+}
+
 pub struct AppState {
     pub status: AppStatus,
     pub selected_camera_index: usize,
     pub is_sandbox_viewing: bool,
+    pub eye_calibrator: detector::EyeCalibrator,
+    pub config: AppConfig,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let config = AppConfig::load();
         Self {
             status: AppStatus {
                 is_running: true,
@@ -40,8 +52,10 @@ impl Default for AppState {
                 total_blinks_today: 0,
                 status_text: "Monitoring Active".to_string(),
             },
-            selected_camera_index: 0,
+            selected_camera_index: config.selected_camera_index,
             is_sandbox_viewing: false,
+            eye_calibrator: detector::EyeCalibrator::new(),
+            config,
         }
     }
 }
@@ -87,14 +101,79 @@ fn get_cameras(_state: State<'_, Mutex<AppState>>) -> Vec<String> {
 fn set_camera(index: usize, state: State<'_, Mutex<AppState>>) -> bool {
     let mut state = state.lock().unwrap();
     state.selected_camera_index = index;
+    state.config.selected_camera_index = index;
+    let _ = state.config.save();
     println!("[420vision::ipc] set_camera -> {}", index);
     true
 }
 
 #[tauri::command]
-fn start_calibration() -> String {
-    println!("[420vision::ipc] start_calibration requested");
-    "Calibration initiated".to_string()
+fn start_calibration(state: State<'_, Mutex<AppState>>) -> String {
+    let mut state = state.lock().unwrap();
+    state.eye_calibrator = detector::EyeCalibrator::new();
+    println!("[420vision::ipc] start_calibration -> calibrator reset and ready");
+    "Calibration started".to_string()
+}
+
+#[tauri::command]
+fn submit_calibration_sample(stage: String, ear: f32, state: State<'_, Mutex<AppState>>) -> bool {
+    if !ear.is_finite() {
+        return false;
+    }
+    let mut state = state.lock().unwrap();
+    match stage.as_str() {
+        "open" => state.eye_calibrator.add_open_sample(ear),
+        "closed" => state.eye_calibrator.add_closed_sample(ear),
+        _ => return false,
+    }
+    true
+}
+
+#[tauri::command]
+fn finalize_calibration(state: State<'_, Mutex<AppState>>) -> CalibrationResult {
+    let (res, config_to_save) = {
+        let mut state = state.lock().unwrap();
+        match state.eye_calibrator.finalize() {
+            Some(threshold) => {
+                // Apply bounds safety clamping [0.16..0.28]
+                let clamped = threshold.clamp(0.16, 0.28);
+                state.config.ear_threshold = clamped;
+                let cfg = state.config.clone();
+                println!("[420vision::ipc] finalize_calibration -> Success! Personal threshold: {:.3}", clamped);
+                (
+                    CalibrationResult {
+                        success: true,
+                        threshold: clamped,
+                        message: format!("Calibration complete! Optimal threshold set to {:.3}", clamped),
+                    },
+                    Some(cfg),
+                )
+            }
+            None => {
+                println!("[420vision::ipc] finalize_calibration -> Failed to extract sufficient variance");
+                (
+                    CalibrationResult {
+                        success: false,
+                        threshold: state.config.ear_threshold,
+                        message: "Calibration incomplete or invalid. Retaining previous threshold.".to_string(),
+                    },
+                    None,
+                )
+            }
+        }
+    }; // Lock released here before disk I/O
+
+    if let Some(cfg) = config_to_save {
+        let _ = cfg.save();
+    }
+
+    res
+}
+
+#[tauri::command]
+fn get_config(state: State<'_, Mutex<AppState>>) -> AppConfig {
+    let state = state.lock().unwrap();
+    state.config.clone()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +321,9 @@ pub fn run() {
             get_cameras,
             set_camera,
             start_calibration,
+            submit_calibration_sample,
+            finalize_calibration,
+            get_config,
             get_stats,
             hide_window,
             quit_app,

@@ -231,6 +231,10 @@ All communication uses strongly typed DTOs via Tauri v2 IPC:
 | `get_cameras` | Invoke | None | `Vec<String>` | Lists detected hardware cameras for the Settings selector. |
 | `set_camera` | Invoke | `{ index: usize }` | `bool` | Switches active hardware camera index dynamically. |
 | `set_sandbox_viewing`| Invoke | `{ active: bool }` | `()` | Conditional rendering toggle: halts JPEG encoding when tab is closed. |
+| `start_calibration` | Invoke | None | `String` | Resets the in-memory `EyeCalibrator` state machine for a fresh 5s run. |
+| `submit_calibration_sample` | Invoke | `{ stage: String, ear: f32 }` | `bool` | Submits an open (3s) or closed (2s) eye EAR sample to the calibrator. |
+| `finalize_calibration` | Invoke | None | `CalibrationResult` | Computes optimal personal threshold, clamps to [0.16..0.28], and saves to config. |
+| `get_config` | Invoke (Pull) | None | `AppConfig` | Fetches active runtime configuration including current `ear_threshold`. |
 | `hide_window` | Invoke | None | `()` | Hides the popover window to the system tray. |
 | `quit_app` | Invoke | None | `()` | Performs deterministic teardown, drops hardware handles, and exits cleanly. |
 | `camera-sandbox-frame`| Event (Push) | `CameraFrameDto` | Stream | Emits live preview frame (JPEG base64) + dual landmark arrays (15 FPS). |
