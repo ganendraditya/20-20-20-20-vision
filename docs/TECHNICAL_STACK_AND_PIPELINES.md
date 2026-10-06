@@ -89,7 +89,7 @@
                    ▼
      ┌───────────────────────────┐
      │ STAGE 1: UltraFace        │ ◄── Input: [1, 3, 240, 320] NCHW, normalized (p - 127)/128
-     │ RFB-320 ONNX (~2ms CPU)   │     Parses all candidate faces (conf >= 0.70)
+     │ RFB-320 ONNX (~5.7ms CPU) │     Parses all candidate faces (conf >= 0.70)
      └─────────────┬─────────────┘
                    │
          Face detected? (Score >= 0.70)
@@ -118,6 +118,23 @@
                    ▼
      [ 468 3D Coordinates: (x, y, z) ]
 ```
+
+### 3.1.1 UltraFace Input Resolution Benchmark & Distance Sensitivity (PoC #39)
+
+Empirical evaluation of the spatial scaling and distance sensitivity of UltraFace RFB-320 across 3 ergonomic distance tiers:
+
+* **Hardware & Runtime Latency (Optimized Production Release Profile):**
+  * Frame Preprocessing ($1280\times 720 \to 320\times 240$ NCHW): **$0.191\text{ ms}$**
+  * ONNX Inference ($[1, 3, 240, 320]$): **$5.752\text{ ms}$**
+  * Total Stage 1 Execution Time: **$5.943\text{ ms}$** (Consumes only **$8.92\%$** of the $66.6\text{ ms}$ budget at $15\text{ FPS}$).
+
+* **Distance-to-Recall Benchmark Matrix:**
+  * **Tier 1 (Close / Selfie, $30\text{–}50\text{ cm}$):** **$100.0\%$ Recall** ($\text{Confidence} \ge 0.776\text{–}1.000$, $\text{Box Area} \approx 0.009\text{–}0.036$).
+  * **Tier 2 (Standard Ergonomic Desk, $50\text{–}80\text{ cm}$):** **$100.0\%$ Recall** ($\text{Confidence} \ge 0.825\text{–}0.993$, $\text{Box Area} \approx 0.0015\text{–}0.008$).
+  * **Tier 3 (Leaning Back, $80\text{–}120\text{ cm}$):** **$66.7\%$ Recall** ($\text{Confidence} \ge 0.706\text{–}0.784$, with ultra-compact faces $\le 0.0004$ box area approaching anchor resolution limit).
+
+* **Architectural Decision Rule:**
+  The baseline $320\times 240$ input resolution is retained as the standard configuration. The UltraFace RFB-320 graph architecture utilizes fixed static anchor grids ($4,420$ anchors configured specifically for $320\times 240$). Preprocessing overhead in compiled production Rust is virtually negligible ($< 0.2\text{ ms}$), providing zero motivation to trade off Tier 2 desk recall for fractional microsecond savings.
 
 ### 3.2 Eyelid Mathematical Landmark Geometry (3-Pair EAR)
 
