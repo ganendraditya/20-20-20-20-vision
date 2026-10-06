@@ -24,11 +24,14 @@ fn generate_heterogeneous_landmarks(
     let sin_r = rad.sin();
 
     // Helper closure to apply 2D rotation & translation around center (50.0, 50.0)
+    // Applies high-frequency spatial perturbation to test genuine landmark coordinate jitter
     let transform = |rx: f32, ry: f32| -> (f32, f32) {
         let cx = 50.0;
         let cy = 50.0;
-        let nx = rx + optical_noise;
-        let ny = ry + optical_noise;
+        let jx = ((rx * 12.9898 + ry * 78.233).sin() * 43758.5453).fract() * optical_noise;
+        let jy = ((rx * 63.7264 + ry * 10.873).sin() * 24634.6345).fract() * optical_noise;
+        let nx = rx + jx;
+        let ny = ry + jy;
         let tx = nx * cos_r - ny * sin_r + cx;
         let ty = nx * sin_r + ny * cos_r + cy;
         (tx, ty)
@@ -252,10 +255,10 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // TIER 4: Anomaly Gaze, Side Profile & Winking Rejection (20 Runs)
+    // TIER 4: Anomaly Gaze, Side Profile & Winking Rejection (Across 30 FPS, 15 FPS, and 5 FPS Idle)
     // Severe yaw (> 0.35), isolated winks, prolonged rest (> 1.0s)
     // ---------------------------------------------------------------------------------------------
-    for fps in [30, 15] {
+    for fps in [30, 15, 5] {
         let frame_dt_ms = 1000 / fps;
 
         // Test 4A: Severe Head Turn / Looking Away (Yaw ratio > 0.40 -> Must REJECT all blinks)
