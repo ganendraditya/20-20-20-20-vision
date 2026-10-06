@@ -278,9 +278,13 @@ impl FaceDetectorEngine {
             .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
 
         // Dynamic Far-Field Confidence Hysteresis:
-        // If tracker has an existing lock, allow far-field candidates down to 0.45 confidence
+        // Initial detection requires >= 0.70 to reject noise/empty frames.
+        // Once active user is locked, spatial continuity allows candidates down to 0.45.
+        const CONF_THRESHOLD_UNTRACKED: f32 = 0.70;
+        const CONF_THRESHOLD_TRACKED: f32 = 0.45;
+
         let is_tracked = tracker.as_ref().map(|t| t.current_lock().is_some()).unwrap_or(false);
-        let min_conf = if is_tracked { 0.45 } else { 0.70 };
+        let min_conf = if is_tracked { CONF_THRESHOLD_TRACKED } else { CONF_THRESHOLD_UNTRACKED };
 
         let mut candidates = Vec::new();
 
@@ -436,15 +440,13 @@ impl FaceTracker {
                 if let Some((match_idx, _)) = best_match {
                     let matched_cand = candidates[match_idx];
 
-                    // Check if an intruding candidate is massively larger (> size_hijack_margin x matched area)
-                    // Exclude the already matched face candidate to strictly evaluate other persons.
-                    // IMPORTANT: An intruder can only hijack the lock if they are substantially closer AND
-                    // located near the primary user's workspace (center_distance_sq <= 0.09).
-                    // Distant background bystanders far across the room must NEVER steal an active session lock!
+                    // Proximity guard radius: sqrt(0.09) ≈ 0.30 normalized units (~30% of frame dimensions)
+                    // Distant bystanders far across the room must NEVER steal an active session lock!
+                    const INTRUDER_PROXIMITY_THRESHOLD_SQ: f32 = 0.09;
                     let max_intruder = candidates
                         .iter()
                         .enumerate()
-                        .filter(|(idx, cand)| *idx != match_idx && cand.center_distance_sq(&tracked) <= 0.09)
+                        .filter(|(idx, cand)| *idx != match_idx && cand.center_distance_sq(&tracked) <= INTRUDER_PROXIMITY_THRESHOLD_SQ)
                         .max_by(|(_, a), (_, b)| a.area().total_cmp(&b.area()))
                         .map(|(_, b)| b);
 
