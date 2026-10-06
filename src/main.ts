@@ -180,12 +180,16 @@ function setupIPC() {
     if (chkKeepAwake) chkKeepAwake.checked = cfg.keep_awake_enabled;
   }).catch(console.error);
 
-  const saveSettings = () => {
-    invoke("update_config", {
-      soundEnabled: chkSound?.checked ?? null,
-      stareAlertEnabled: chkStare?.checked ?? null,
-      keepAwakeEnabled: chkKeepAwake?.checked ?? null,
-    }).catch(console.error);
+  const saveSettings = async () => {
+    try {
+      await invoke("update_config", {
+        soundEnabled: chkSound?.checked ?? null,
+        stareAlertEnabled: chkStare?.checked ?? null,
+        keepAwakeEnabled: chkKeepAwake?.checked ?? null,
+      });
+    } catch (e) {
+      console.error("Failed to save settings:", e);
+    }
   };
 
   chkSound?.addEventListener("change", saveSettings);

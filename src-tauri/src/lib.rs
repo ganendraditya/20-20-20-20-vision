@@ -183,8 +183,9 @@ fn update_config(
     keep_awake_enabled: Option<bool>,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<AppConfig, String> {
-    let config_to_save = {
+    let (old_config, new_config) = {
         let mut state = state.lock().unwrap();
+        let old = state.config.clone();
         if let Some(sound) = sound_enabled {
             state.config.sound_enabled = sound;
         }
@@ -194,17 +195,23 @@ fn update_config(
         if let Some(keep_awake) = keep_awake_enabled {
             state.config.keep_awake_enabled = keep_awake;
         }
-        state.config.clone()
+        (old, state.config.clone())
     };
 
-    config_to_save.save().map_err(|e| format!("Failed to save config: {}", e))?;
+    if let Err(e) = new_config.save() {
+        // Rollback memory state on disk write failure
+        let mut state = state.lock().unwrap();
+        state.config = old_config;
+        return Err(format!("Failed to save config: {}", e));
+    }
+
     println!(
         "[420vision::ipc] Config updated: sound={}, stare_alert={}, keep_awake={}",
-        config_to_save.sound_enabled,
-        config_to_save.stare_alert_enabled,
-        config_to_save.keep_awake_enabled,
+        new_config.sound_enabled,
+        new_config.stare_alert_enabled,
+        new_config.keep_awake_enabled,
     );
-    Ok(config_to_save)
+    Ok(new_config)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
