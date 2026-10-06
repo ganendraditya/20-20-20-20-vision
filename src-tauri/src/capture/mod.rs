@@ -276,7 +276,13 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                     let preprocessed = engine.preprocess(raw_bytes, w, h, dominant_bbox.as_ref());
                                     if let Ok(landmarks) = engine.infer(preprocessed) {
-                                        is_face = true;
+                                        // Evaluate Head Pose Yaw Gate:
+                                        // If user is severely turned away (yaw_ratio > 0.35), consider them "Away / Not looking"
+                                        let is_facing = crate::detector::EarCalculator::estimate_head_pose(&landmarks)
+                                            .map(|pose| pose.is_facing_camera)
+                                            .unwrap_or(true);
+
+                                        is_face = is_facing;
 
                                         // Run blink detector
                                         let event = blink_detector.update(&landmarks, now);

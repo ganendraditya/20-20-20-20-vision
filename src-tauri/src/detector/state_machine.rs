@@ -73,10 +73,24 @@ impl BlinkDetector {
 
     /// Process a frame with 468 landmarks and return the blink / stare detection results
     pub fn update(&mut self, landmarks: &[Landmark3D], now: Instant) -> BlinkEvent {
-        let ear_metrics = match self.ear_calculator.calculate(landmarks) {
+        // Head Pose Yaw Gate (Issue #48):
+        // If the subject is severely turned away (yaw_ratio > 0.35, e.g. looking away, profile, or back of head),
+        // reject blink detection and pause stare tracking immediately.
+        let is_facing = crate::detector::EarCalculator::estimate_head_pose(landmarks)
+            .map(|pose| pose.is_facing_camera)
+            .unwrap_or(true);
+
+        // Guard against updating EMA filter with distorted EAR values while subject is looking away
+        let ear_metrics_opt = if is_facing {
+            self.ear_calculator.calculate(landmarks)
+        } else {
+            None
+        };
+
+        let ear_metrics = match ear_metrics_opt {
             Some(metrics) => metrics,
             None => {
-                // If face not detected, pause stare warning timer and clear active closure states
+                // If face not detected or looking away, pause stare warning timer and clear active closure states
                 self.left_is_closed = false;
                 self.left_closure_start = None;
                 self.left_closed_frames = 0;

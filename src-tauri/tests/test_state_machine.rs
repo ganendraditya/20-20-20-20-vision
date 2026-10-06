@@ -25,6 +25,9 @@ fn create_synthetic_landmarks(eye_height: f32, eye_width: f32) -> Vec<Landmark3D
     landmarks[385] = Landmark3D { x: eye_width * 0.7, y: eye_height, z: 0.0 };
     landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
+    // Nose tip setup (index 1) positioned symmetrically at midpoint of eyes for frontal face
+    landmarks[1] = Landmark3D { x: eye_width * 0.5, y: 5.0, z: 0.0 };
+
     landmarks
 }
 
@@ -120,6 +123,9 @@ fn create_asymmetric_landmarks(left_height: f32, right_height: f32, eye_width: f
     landmarks[373] = Landmark3D { x: eye_width * 0.3, y: 0.0, z: 0.0 };
     landmarks[385] = Landmark3D { x: eye_width * 0.7, y: right_height, z: 0.0 };
     landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
+
+    // Nose tip setup (index 1) positioned symmetrically at midpoint of eyes for frontal face
+    landmarks[1] = Landmark3D { x: eye_width * 0.5, y: 5.0, z: 0.0 };
 
     landmarks
 }

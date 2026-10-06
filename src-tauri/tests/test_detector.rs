@@ -71,3 +71,26 @@ fn test_eye_calibration_threshold_optimization() {
     let threshold = calibrator.finalize().expect("Calibration should succeed");
     assert!((threshold - 0.196).abs() < 1e-3);
 }
+
+#[test]
+fn test_head_pose_yaw_symmetry_gate() {
+    let mut frontal_landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
+    // Outer eye corners: 33 at x=2.0, 263 at x=8.0 (width = 6.0, mid = 5.0)
+    frontal_landmarks[33] = Landmark3D { x: 2.0, y: 3.0, z: 0.0 };
+    frontal_landmarks[263] = Landmark3D { x: 8.0, y: 3.0, z: 0.0 };
+    // Nose tip: exactly at x=5.1 (slight natural asymmetry, offset = 0.1, yaw = 0.1 / 6.0 = 0.016)
+    frontal_landmarks[1] = Landmark3D { x: 5.1, y: 5.0, z: 0.0 };
+
+    let frontal_pose = EarCalculator::estimate_head_pose(&frontal_landmarks).expect("Should estimate pose");
+    assert!(frontal_pose.is_facing_camera, "Frontal face must be approved");
+    assert!(frontal_pose.yaw_ratio < 0.10);
+
+    // Profile landmarks: user turned head significantly to the side
+    let mut profile_landmarks = frontal_landmarks.clone();
+    // Nose tip shifted far to x=7.8 (offset = 2.8, yaw = 2.8 / 6.0 = 0.466 > 0.35)
+    profile_landmarks[1] = Landmark3D { x: 7.8, y: 5.0, z: 0.0 };
+
+    let profile_pose = EarCalculator::estimate_head_pose(&profile_landmarks).expect("Should estimate pose");
+    assert!(!profile_pose.is_facing_camera, "Side profile head angle must be rejected");
+    assert!(profile_pose.yaw_ratio > 0.40);
+}

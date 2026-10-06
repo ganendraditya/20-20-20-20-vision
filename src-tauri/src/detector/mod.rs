@@ -22,6 +22,20 @@ pub const RIGHT_EYE_V1: (usize, usize) = (386, 374);
 pub const RIGHT_EYE_V2: (usize, usize) = (387, 373);
 pub const RIGHT_EYE_V3: (usize, usize) = (385, 380);
 
+// Landmark indices for Head Pose Yaw calculation
+pub const NOSE_TIP: usize = 1;
+pub const LEFT_EYE_OUTER_CORNER: usize = 33;
+pub const RIGHT_EYE_OUTER_CORNER: usize = 263;
+
+/// Maximum permissible nasal-interocular yaw asymmetry ratio for frontal gaze (< ~35 degree turn)
+pub const MAX_YAW_RATIO_FRONTAL: f32 = 0.35;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeadPoseMetrics {
+    pub is_facing_camera: bool,
+    pub yaw_ratio: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EarMetrics {
     pub left_ear: f32,
@@ -89,6 +103,39 @@ impl EarCalculator {
 
         // Standard 3-pair EAR formula: (||v1|| + ||v2|| + ||v3||) / (3.0 * ||h||)
         (dist_v1 + dist_v2 + dist_v3) / (3.0 * dist_h)
+    }
+
+    /// Evaluate head pose yaw angle via nasal-interocular symmetry.
+    /// Calculates the horizontal offset between the nose tip (index 1) and the midpoint
+    /// of outer eye corners (indices 33 and 263) normalized by interocular width.
+    ///
+    /// - Frontal gaze looking at screen: yaw_ratio <= 0.25 (typical natural posture)
+    /// - Severe side profile / looking away: yaw_ratio > 0.35
+    pub fn estimate_head_pose(landmarks: &[Landmark3D]) -> Option<HeadPoseMetrics> {
+        let (Some(p_left), Some(p_right), Some(p_nose)) = (
+            landmarks.get(LEFT_EYE_OUTER_CORNER),
+            landmarks.get(RIGHT_EYE_OUTER_CORNER),
+            landmarks.get(NOSE_TIP),
+        ) else {
+            return None;
+        };
+
+        let interocular_width = (p_right.x - p_left.x).abs();
+        if interocular_width <= 1e-4 {
+            return None;
+        }
+
+        let eye_mid_x = (p_left.x + p_right.x) / 2.0;
+        let nose_offset = (p_nose.x - eye_mid_x).abs();
+        let yaw_ratio = nose_offset / interocular_width;
+
+        // Threshold: rejects > 35-degree turns and profile silhouettes
+        let is_facing_camera = yaw_ratio <= MAX_YAW_RATIO_FRONTAL;
+
+        Some(HeadPoseMetrics {
+            is_facing_camera,
+            yaw_ratio,
+        })
     }
 
     /// Calculate left, right, average, and EMA-smoothed EAR from 468 facial landmarks
