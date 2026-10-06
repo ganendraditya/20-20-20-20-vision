@@ -251,6 +251,10 @@ impl FaceDetectorEngine {
     }
 
     /// Run FaceDetector inference and select primary user with optional Sticky Tracking.
+    /// Supports Adaptive Far-Field Confidence Hysteresis:
+    /// - Initial / un-tracked detection requires high confidence (>= 0.70) to prevent phantom triggers.
+    /// - Once an active user is locked, spatial continuity matching accepts far-field candidates (>= 0.45)
+    ///   allowing the user to lean back or stretch (Tier 3: 80-120cm) without dropping presence or blinks.
     /// Returns: (has_face: bool, all_faces: Vec<FaceBoundingBox>, selected_primary: Option<FaceBoundingBox>)
     pub fn detect_faces_and_track(
         &mut self,
@@ -273,11 +277,20 @@ impl FaceDetectorEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
 
+        // Dynamic Far-Field Confidence Hysteresis:
+        // Initial detection requires >= 0.70 to reject noise/empty frames.
+        // Once active user is locked, spatial continuity allows candidates down to 0.45.
+        const CONF_THRESHOLD_UNTRACKED: f32 = 0.70;
+        const CONF_THRESHOLD_TRACKED: f32 = 0.45;
+
+        let is_tracked = tracker.as_ref().map(|t| t.current_lock().is_some()).unwrap_or(false);
+        let min_conf = if is_tracked { CONF_THRESHOLD_TRACKED } else { CONF_THRESHOLD_UNTRACKED };
+
         let mut candidates = Vec::new();
 
         for (score_chunk, box_chunk) in scores.chunks_exact(2).zip(boxes.chunks_exact(4)) {
             let conf = score_chunk[1];
-            if conf >= 0.70 {
+            if conf >= min_conf {
                 candidates.push(FaceBoundingBox {
                     xmin: box_chunk[0].clamp(0.0, 1.0),
                     ymin: box_chunk[1].clamp(0.0, 1.0),
@@ -365,11 +378,13 @@ impl FaceTracker {
             self.lost_frames += 1;
             if self.lost_frames > self.max_lost_frames {
                 self.last_tracked_box = None;
+                None
+            } else {
+                // Graceful retention: preserve last known target during brief frame drop / momentary flicker
+                self.last_tracked_box
             }
-            return None;
-        }
-
-        match self.last_tracked_box {
+        } else {
+            match self.last_tracked_box {
             None => {
                 // Initial target lock: pick the largest face in frame (primary subject closest to screen).
                 // If areas are virtually identical within 1% float noise, pick the one with higher confidence.
@@ -425,12 +440,13 @@ impl FaceTracker {
                 if let Some((match_idx, _)) = best_match {
                     let matched_cand = candidates[match_idx];
 
-                    // Check if an intruding candidate is massively larger (> size_hijack_margin x matched area)
-                    // Exclude the already matched face candidate to strictly evaluate other persons
+                    // Proximity guard radius: sqrt(0.09) ≈ 0.30 normalized units (~30% of frame dimensions)
+                    // Distant bystanders far across the room must NEVER steal an active session lock!
+                    const INTRUDER_PROXIMITY_THRESHOLD_SQ: f32 = 0.09;
                     let max_intruder = candidates
                         .iter()
                         .enumerate()
-                        .filter(|(idx, _)| *idx != match_idx)
+                        .filter(|(idx, cand)| *idx != match_idx && cand.center_distance_sq(&tracked) <= INTRUDER_PROXIMITY_THRESHOLD_SQ)
                         .max_by(|(_, a), (_, b)| a.area().total_cmp(&b.area()))
                         .map(|(_, b)| b);
 
@@ -470,4 +486,5 @@ impl FaceTracker {
             }
         }
     }
+}
 }

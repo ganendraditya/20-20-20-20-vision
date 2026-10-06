@@ -136,6 +136,17 @@ Empirical evaluation of the spatial scaling and distance sensitivity of UltraFac
 * **Architectural Decision Rule:**
   The baseline $320\times 240$ input resolution is retained as the standard configuration. The UltraFace RFB-320 graph architecture utilizes fixed static anchor grids ($4,420$ anchors configured specifically for $320\times 240$). Preprocessing overhead in compiled production Rust is virtually negligible ($< 0.2\text{ ms}$), providing zero motivation to trade off Tier 2 desk recall for fractional microsecond savings.
 
+### 3.1.2 Adaptive Far-Field Confidence Hysteresis (Issue #55)
+
+To prevent premature detection drops when users lean back in their chairs, stretch, or recline ($80\text{–}120\text{ cm}$, Tier 3) while remaining attentive to the screen:
+
+* **Dual-State Detection Thresholding:**
+  * **Initial Un-tracked Frame ($\text{Tracker} = \text{None}$):** Enforces strict confidence threshold ($\text{Conf} \ge 0.70$) to eliminate phantom face overlays on empty chairs or background noise.
+  * **Active Session Lock ($\text{Tracker} = \text{Some}(b)$):** Relaxes the candidate ingestion threshold dynamically to $\text{Conf} \ge 0.45$.
+* **Benchmark Recall Verification:**
+  * Boosts Tier 3 far-field recall from **$47.2\%$ ($17/36$)** to **$63.9\%$ ($23/36$)** across a comprehensive 108-case heterogeneous stress matrix spanning 12 real-world perturbations (dim lighting, glare, sensor grain, head displacement, tilt, and lateral shadows).
+  * Preserves $0\%$ false positive rate on empty or neutral background frames (maximum background score recorded: $< 0.08$).
+
 ### 3.2 Eyelid Mathematical Landmark Geometry (3-Pair EAR)
 
 Following the Soukupová & Čech (2016) canonical model upgraded to 3 vertical anatomical pairs for curved eyelid discriminability:

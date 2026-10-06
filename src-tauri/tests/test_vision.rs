@@ -287,3 +287,283 @@ fn test_review_fix_nms_and_total_cmp_handles_nan_and_overlapping_candidates() {
     let next_locked = tracker.update(&[b1, b2, b3]).expect("Must maintain lock");
     assert!((next_locked.xmin - b1.xmin).abs() < 1e-4);
 }
+
+#[test]
+fn test_adaptive_far_field_hysteresis_preserves_presence_on_lean_back() {
+    use vision420_lib::vision::{FaceDetectorEngine, FaceTracker};
+    let model_path = Path::new("../models/ultraface.onnx");
+    if !model_path.exists() {
+        return;
+    }
+
+    let mut engine = FaceDetectorEngine::new(model_path).expect("Failed to init FaceDetectorEngine");
+    let mut tracker = FaceTracker::default();
+
+    let fixture = Path::new("tests/fixtures/1face.png");
+    let img = image::open(fixture).expect("Failed to open fixture").to_rgb8();
+    let (orig_w, orig_h) = (img.width(), img.height());
+
+    // Frame 1: User sits normally at Tier 1 desk distance (640x480)
+    let pre_normal = engine.preprocess(img.as_raw(), orig_w as usize, orig_h as usize);
+    let (has_face_f1, _, primary_f1) = engine.detect_faces_and_track(pre_normal, Some(&mut tracker)).unwrap();
+    assert!(has_face_f1, "Normal desk frame must detect face");
+    assert!(primary_f1.is_some(), "Tracker must acquire initial lock");
+    assert!(tracker.current_lock().is_some(), "Tracker must hold active lock");
+
+    // Frame 2: User leans back to Tier 3 distance (0.25x scale face on canvas)
+    let scaled_w = (orig_w as f32 * 0.25).round() as u32;
+    let scaled_h = (orig_h as f32 * 0.25).round() as u32;
+    let scaled = image::imageops::resize(&img, scaled_w, scaled_h, image::imageops::FilterType::Triangle);
+
+    let mut canvas = image::RgbImage::new(orig_w, orig_h);
+    for px in canvas.pixels_mut() { *px = image::Rgb([120, 120, 120]); }
+    let ox = (orig_w - scaled_w) / 2;
+    let oy = (orig_h - scaled_h) / 2;
+    image::imageops::overlay(&mut canvas, &scaled, ox as i64, oy as i64);
+
+    let pre_far = engine.preprocess(canvas.as_raw(), orig_w as usize, orig_h as usize);
+    let (has_face_far, _, primary_far) = engine.detect_faces_and_track(pre_far, Some(&mut tracker)).unwrap();
+
+    assert!(has_face_far, "Adaptive hysteresis must retain face presence when user leans back");
+    assert!(primary_far.is_some(), "Adaptive tracker must retain lock on far-field user");
+}
+
+#[test]
+fn test_video_continuous_trajectory_dynamic_speed_and_angles() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::default();
+
+    let mut curr_x = 0.50f32;
+    let mut curr_y = 0.50f32;
+    let mut curr_w = 0.25f32;
+
+    let mut lock_maintained_frames = 0;
+    let total_frames = 300;
+
+    for frame in 1..=total_frames {
+        let (dx, dy, dw) = if frame <= 30 {
+            (0.0, 0.0, 0.0) // Still / seated
+        } else if frame <= 80 {
+            let t = (frame - 30) as f32;
+            (t.sin() * 0.005, t.cos() * 0.003, t.sin() * 0.002) // Gentle wander
+        } else if frame <= 130 {
+            let t = (frame - 80) as f32;
+            (t.sin() * 0.025, (t * 1.5).cos() * 0.020, (t * 0.5).sin() * 0.008) // Rapid displacement across desk
+        } else if frame <= 180 {
+            (0.008, -0.008, -0.001) // Migrates toward top-right corner
+        } else if frame <= 230 {
+            (-0.015, 0.012, 0.001) // Shift toward bottom-left corner
+        } else {
+            (0.002, 0.002, -0.002) // Deep recline / lean back (Tier 3 far field)
+        };
+
+        curr_x = (curr_x + dx).clamp(0.05, 0.75);
+        curr_y = (curr_y + dy).clamp(0.05, 0.65);
+        curr_w = (curr_w + dw).clamp(0.12, 0.35);
+        let curr_h = curr_w * 1.25;
+
+        let active_user_box = FaceBoundingBox {
+            xmin: curr_x,
+            ymin: curr_y,
+            xmax: curr_x + curr_w,
+            ymax: curr_y + curr_h,
+            confidence: if curr_w < 0.15 { 0.52 } else { 0.90 },
+        };
+
+        let mut candidates = vec![active_user_box];
+
+        // Introduce background bystander across room in frames 231..300
+        if frame > 230 {
+            let passerby = FaceBoundingBox {
+                xmin: 0.75,
+                ymin: 0.30,
+                xmax: 0.90,
+                ymax: 0.52,
+                confidence: 0.88,
+            };
+            candidates.push(passerby);
+        }
+
+        let tracked = tracker.update(&candidates);
+        if let Some(target) = tracked {
+            let dist_sq = target.center_distance_sq(&active_user_box);
+            if dist_sq < 0.02 {
+                lock_maintained_frames += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        lock_maintained_frames, total_frames,
+        "Tracker must maintain 100% lock retention across all 300 continuous video trajectory frames"
+    );
+}
+
+#[derive(Debug, Clone, Copy)]
+enum VideoScenarioType {
+    StillSeatedNormal,
+    SlowBreathingBobbing,
+    GentleTypingLean,
+    SubtleSideGlance,
+    SlowDiagonalDrift,
+    RapidChairReclineFarField,
+    StandingDeskTransitionUp,
+    SittingDownTransitionDown,
+    ReachingForCoffeeRight,
+    ReachingForMouseLeft,
+    ZigZagHeadShake,
+    PeriodicMicroNodding,
+    BystanderPassesFarBackground,
+    BystanderBriefOcclusion,
+    CornerTopRightRest,
+    CornerBottomLeftSlump,
+    HighSpeedLateralSprint,
+    SuddenBrakeAndReverseSprint,
+    DiagonalTeleportLikeBurst,
+    RotationalCircleOrbit,
+    FigureEightLissajousOrbit,
+    PulsingDepthOscillation,
+    MultiBystanderCafeWalkby,
+    EdgeClippingTopBorder,
+    EdgeClippingRightBorder,
+    StrobeLikeFrameDropOscillation,
+    HyperVelocityJitterChaos,
+    ExtremeFarFieldCornerShrink,
+    FalseGhostBoxFlickerBait,
+    DoubleSwappingIdenticalTwins,
+}
+
+struct VideoTestCase {
+    name: &'static str,
+    scenario: VideoScenarioType,
+    frames_count: usize,
+    min_required_retention_pct: f32,
+}
+
+#[test]
+fn test_video_continuous_multi_scenario_chaos_matrix_30_videos() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let test_cases = [
+        VideoTestCase { name: "01_StillSeatedNormal", scenario: VideoScenarioType::StillSeatedNormal, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "02_SlowBreathingBobbing", scenario: VideoScenarioType::SlowBreathingBobbing, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "03_GentleTypingLean", scenario: VideoScenarioType::GentleTypingLean, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "04_SubtleSideGlance", scenario: VideoScenarioType::SubtleSideGlance, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "05_SlowDiagonalDrift", scenario: VideoScenarioType::SlowDiagonalDrift, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "06_RapidChairReclineFarField", scenario: VideoScenarioType::RapidChairReclineFarField, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "07_StandingDeskTransitionUp", scenario: VideoScenarioType::StandingDeskTransitionUp, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "08_SittingDownTransitionDown", scenario: VideoScenarioType::SittingDownTransitionDown, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "09_ReachingForCoffeeRight", scenario: VideoScenarioType::ReachingForCoffeeRight, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "10_ReachingForMouseLeft", scenario: VideoScenarioType::ReachingForMouseLeft, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "11_ZigZagHeadShake", scenario: VideoScenarioType::ZigZagHeadShake, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "12_PeriodicMicroNodding", scenario: VideoScenarioType::PeriodicMicroNodding, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "13_BystanderPassesFarBackground", scenario: VideoScenarioType::BystanderPassesFarBackground, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "14_BystanderBriefOcclusion", scenario: VideoScenarioType::BystanderBriefOcclusion, frames_count: 150, min_required_retention_pct: 95.0 },
+        VideoTestCase { name: "15_CornerTopRightRest", scenario: VideoScenarioType::CornerTopRightRest, frames_count: 150, min_required_retention_pct: 100.0 },
+        VideoTestCase { name: "16_CornerBottomLeftSlump", scenario: VideoScenarioType::CornerBottomLeftSlump, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "17_HighSpeedLateralSprint", scenario: VideoScenarioType::HighSpeedLateralSprint, frames_count: 150, min_required_retention_pct: 95.0 },
+        VideoTestCase { name: "18_SuddenBrakeAndReverseSprint", scenario: VideoScenarioType::SuddenBrakeAndReverseSprint, frames_count: 150, min_required_retention_pct: 95.0 },
+        VideoTestCase { name: "19_DiagonalTeleportLikeBurst", scenario: VideoScenarioType::DiagonalTeleportLikeBurst, frames_count: 150, min_required_retention_pct: 90.0 },
+        VideoTestCase { name: "20_RotationalCircleOrbit", scenario: VideoScenarioType::RotationalCircleOrbit, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "21_FigureEightLissajousOrbit", scenario: VideoScenarioType::FigureEightLissajousOrbit, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "22_PulsingDepthOscillation", scenario: VideoScenarioType::PulsingDepthOscillation, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "23_MultiBystanderCafeWalkby", scenario: VideoScenarioType::MultiBystanderCafeWalkby, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "24_EdgeClippingTopBorder", scenario: VideoScenarioType::EdgeClippingTopBorder, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "25_EdgeClippingRightBorder", scenario: VideoScenarioType::EdgeClippingRightBorder, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "26_StrobeLikeFrameDropOscillation", scenario: VideoScenarioType::StrobeLikeFrameDropOscillation, frames_count: 150, min_required_retention_pct: 90.0 },
+        VideoTestCase { name: "27_HyperVelocityJitterChaos", scenario: VideoScenarioType::HyperVelocityJitterChaos, frames_count: 150, min_required_retention_pct: 88.0 },
+        VideoTestCase { name: "28_ExtremeFarFieldCornerShrink", scenario: VideoScenarioType::ExtremeFarFieldCornerShrink, frames_count: 150, min_required_retention_pct: 90.0 },
+        VideoTestCase { name: "29_FalseGhostBoxFlickerBait", scenario: VideoScenarioType::FalseGhostBoxFlickerBait, frames_count: 150, min_required_retention_pct: 98.0 },
+        VideoTestCase { name: "30_DoubleSwappingIdenticalTwins", scenario: VideoScenarioType::DoubleSwappingIdenticalTwins, frames_count: 150, min_required_retention_pct: 92.0 },
+    ];
+
+    let mut scenarios_passed = 0;
+    let total_scenarios = test_cases.len();
+
+    for tc in &test_cases {
+        let mut tracker = FaceTracker::default();
+        let mut curr_x = 0.45f32;
+        let mut curr_y = 0.40f32;
+        let mut curr_w = 0.25f32;
+
+        let mut retained_in_case = 0;
+
+        for f in 1..=tc.frames_count {
+            let t = f as f32;
+            let (dx, dy, dw, conf, drop_frame, extra_boxes) = match tc.scenario {
+                VideoScenarioType::StillSeatedNormal => (0.0, 0.0, 0.0, 0.95, false, vec![]),
+                VideoScenarioType::SlowBreathingBobbing => (0.0, (t * 0.1).sin() * 0.002, 0.0, 0.93, false, vec![]),
+                VideoScenarioType::GentleTypingLean => ((t * 0.05).sin() * 0.003, (t * 0.05).cos() * 0.003, (t * 0.05).sin() * 0.002, 0.92, false, vec![]),
+                VideoScenarioType::SubtleSideGlance => ((t * 0.08).sin() * 0.004, 0.0, 0.0, 0.90, false, vec![]),
+                VideoScenarioType::SlowDiagonalDrift => (0.001, 0.001, 0.0, 0.91, false, vec![]),
+                VideoScenarioType::RapidChairReclineFarField => (0.0, 0.001, if f > 30 && f < 90 { -0.002 } else { 0.0 }, if f >= 60 { 0.50 } else { 0.90 }, false, vec![]),
+                VideoScenarioType::StandingDeskTransitionUp => (0.0, -0.003, 0.0, 0.90, false, vec![]),
+                VideoScenarioType::SittingDownTransitionDown => (0.0, 0.003, 0.0, 0.90, false, vec![]),
+                VideoScenarioType::ReachingForCoffeeRight => (if f > 40 && f < 80 { 0.006 } else if f >= 80 && f < 120 { -0.006 } else { 0.0 }, 0.001, 0.0, 0.88, false, vec![]),
+                VideoScenarioType::ReachingForMouseLeft => (if f > 40 && f < 80 { -0.006 } else if f >= 80 && f < 120 { 0.006 } else { 0.0 }, 0.001, 0.0, 0.88, false, vec![]),
+                VideoScenarioType::ZigZagHeadShake => ((t * 0.3).sin() * 0.012, 0.0, 0.0, 0.89, false, vec![]),
+                VideoScenarioType::PeriodicMicroNodding => (0.0, (t * 0.25).sin() * 0.006, 0.0, 0.91, false, vec![]),
+                VideoScenarioType::BystanderPassesFarBackground => (0.0, 0.0, 0.0, 0.92, false, vec![FaceBoundingBox { xmin: 0.80, ymin: 0.15, xmax: 0.92, ymax: 0.32, confidence: 0.85 }]),
+                VideoScenarioType::BystanderBriefOcclusion => (0.0, 0.0, 0.0, 0.90, f >= 50 && f <= 53, vec![]),
+                VideoScenarioType::CornerTopRightRest => (0.003, -0.003, -0.001, 0.89, false, vec![]),
+                VideoScenarioType::CornerBottomLeftSlump => (-0.003, 0.003, 0.0, 0.87, false, vec![]),
+                VideoScenarioType::HighSpeedLateralSprint => ((t * 0.2).sin() * 0.024, 0.0, 0.0, 0.88, false, vec![]),
+                VideoScenarioType::SuddenBrakeAndReverseSprint => (if f < 75 { 0.020 } else { -0.020 }, 0.0, 0.0, 0.86, false, vec![]),
+                VideoScenarioType::DiagonalTeleportLikeBurst => ((t * 0.3).sin() * 0.028, (t * 0.25).cos() * 0.022, 0.0, 0.85, false, vec![]),
+                VideoScenarioType::RotationalCircleOrbit => ((t * 0.15).cos() * 0.015, (t * 0.15).sin() * 0.015, 0.0, 0.88, false, vec![]),
+                VideoScenarioType::FigureEightLissajousOrbit => ((t * 0.15).sin() * 0.018, (t * 0.30).sin() * 0.012, 0.0, 0.88, false, vec![]),
+                VideoScenarioType::PulsingDepthOscillation => (0.0, 0.0, (t * 0.2).sin() * 0.008, 0.85, false, vec![]),
+                VideoScenarioType::MultiBystanderCafeWalkby => (0.001, 0.0, 0.0, 0.90, false, vec![
+                    FaceBoundingBox { xmin: 0.10, ymin: 0.20, xmax: 0.22, ymax: 0.35, confidence: 0.80 },
+                    FaceBoundingBox { xmin: 0.78, ymin: 0.18, xmax: 0.90, ymax: 0.34, confidence: 0.82 },
+                ]),
+                VideoScenarioType::EdgeClippingTopBorder => (0.0, -0.004, 0.0, 0.84, false, vec![]),
+                VideoScenarioType::EdgeClippingRightBorder => (0.004, 0.0, 0.0, 0.84, false, vec![]),
+                VideoScenarioType::StrobeLikeFrameDropOscillation => (0.001, 0.001, 0.0, 0.88, f % 3 == 0, vec![]),
+                VideoScenarioType::HyperVelocityJitterChaos => (((f * 17) % 19) as f32 * 0.003 - 0.025, ((f * 13) % 17) as f32 * 0.003 - 0.022, 0.0, 0.85, false, vec![]),
+                VideoScenarioType::ExtremeFarFieldCornerShrink => (0.003, -0.003, -0.002, 0.48, false, vec![]),
+                VideoScenarioType::FalseGhostBoxFlickerBait => (0.0, 0.0, 0.0, 0.88, false, if f % 5 == 0 {
+                    vec![FaceBoundingBox { xmin: 0.85, ymin: 0.10, xmax: 0.95, ymax: 0.22, confidence: 0.78 }]
+                } else { vec![] }),
+                VideoScenarioType::DoubleSwappingIdenticalTwins => ((t * 0.1).sin() * 0.008, 0.0, 0.0, 0.90, false, vec![
+                    FaceBoundingBox { xmin: 0.65 + (t * 0.1).cos() * 0.008, ymin: curr_y, xmax: 0.85 + (t * 0.1).cos() * 0.008, ymax: curr_y + curr_w * 1.25, confidence: 0.89 }
+                ]),
+            };
+
+            curr_x = (curr_x + dx).clamp(0.01, 0.80);
+            curr_y = (curr_y + dy).clamp(0.01, 0.70);
+            curr_w = (curr_w + dw).clamp(0.08, 0.40);
+            let curr_h = curr_w * 1.25;
+
+            let active_user_box = FaceBoundingBox {
+                xmin: curr_x,
+                ymin: curr_y,
+                xmax: (curr_x + curr_w).min(0.99),
+                ymax: (curr_y + curr_h).min(0.99),
+                confidence: conf,
+            };
+
+            let mut frame_candidates = Vec::new();
+            if !drop_frame {
+                frame_candidates.push(active_user_box);
+            }
+            frame_candidates.extend(extra_boxes);
+
+            let tracked = tracker.update(&frame_candidates);
+            if let Some(target) = tracked {
+                let dist_sq = target.center_distance_sq(&active_user_box);
+                if dist_sq <= 0.04 || drop_frame {
+                    retained_in_case += 1;
+                }
+            }
+        }
+
+        let ret_pct = (retained_in_case as f32 / tc.frames_count as f32) * 100.0;
+        if ret_pct >= tc.min_required_retention_pct {
+            scenarios_passed += 1;
+        }
+    }
+
+    assert_eq!(scenarios_passed, total_scenarios, "All 30 continuous video scenarios must pass retention criteria");
+}
