@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct AppConfig {
     pub ear_threshold: f32,
     pub stare_limit_secs: f32,
@@ -12,6 +13,7 @@ pub struct AppConfig {
     pub selected_camera_index: usize,
     pub sound_enabled: bool,
     pub stare_alert_enabled: bool,
+    pub keep_awake_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -24,6 +26,7 @@ impl Default for AppConfig {
             selected_camera_index: 0,
             sound_enabled: true,
             stare_alert_enabled: true,
+            keep_awake_enabled: true,
         }
     }
 }

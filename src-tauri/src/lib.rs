@@ -176,6 +176,44 @@ fn get_config(state: State<'_, Mutex<AppState>>) -> AppConfig {
     state.config.clone()
 }
 
+#[tauri::command]
+fn update_config(
+    sound_enabled: Option<bool>,
+    stare_alert_enabled: Option<bool>,
+    keep_awake_enabled: Option<bool>,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<AppConfig, String> {
+    let (old_config, new_config) = {
+        let mut state = state.lock().unwrap();
+        let old = state.config.clone();
+        if let Some(sound) = sound_enabled {
+            state.config.sound_enabled = sound;
+        }
+        if let Some(stare) = stare_alert_enabled {
+            state.config.stare_alert_enabled = stare;
+        }
+        if let Some(keep_awake) = keep_awake_enabled {
+            state.config.keep_awake_enabled = keep_awake;
+        }
+        (old, state.config.clone())
+    };
+
+    if let Err(e) = new_config.save() {
+        // Rollback memory state on disk write failure
+        let mut state = state.lock().unwrap();
+        state.config = old_config;
+        return Err(format!("Failed to save config: {}", e));
+    }
+
+    println!(
+        "[420vision::ipc] Config updated: sound={}, stare_alert={}, keep_awake={}",
+        new_config.sound_enabled,
+        new_config.stare_alert_enabled,
+        new_config.keep_awake_enabled,
+    );
+    Ok(new_config)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyCompliance {
     pub date: String,
@@ -324,6 +362,7 @@ pub fn run() {
             submit_calibration_sample,
             finalize_calibration,
             get_config,
+            update_config,
             get_stats,
             hide_window,
             quit_app,

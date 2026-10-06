@@ -33,3 +33,29 @@ fn test_native_notifications_can_be_invoked_safely() {
     Notifier::notify_stare_warning();
     Notifier::notify_break_time();
 }
+
+#[test]
+fn test_sleep_blocker_acquire_and_release_lifecycle() {
+    use vision420_lib::notifier::SleepBlocker;
+
+    let mut blocker = SleepBlocker::new();
+    assert!(!blocker.is_active(), "Blocker should initially be inactive");
+
+    // 1. Acquire sleep assertion
+    blocker.acquire();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    assert!(blocker.is_active(), "Blocker must be active after acquire");
+
+    // Idempotent acquire should not break state
+    blocker.acquire();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    assert!(blocker.is_active());
+
+    // 2. Release sleep assertion
+    blocker.release();
+    assert!(!blocker.is_active(), "Blocker must be inactive after release");
+
+    // Idempotent release
+    blocker.release();
+    assert!(!blocker.is_active());
+}

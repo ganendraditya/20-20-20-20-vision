@@ -45,6 +45,7 @@ interface AppConfig {
   selected_camera_index: number;
   sound_enabled: boolean;
   stare_alert_enabled: boolean;
+  keep_awake_enabled: boolean;
 }
 
 interface CalibrationResult {
@@ -166,10 +167,34 @@ function setupIPC() {
   const calFill = document.getElementById("calibration-progress-fill");
   const calResult = document.getElementById("calibration-result-text");
 
-  // Load current threshold on init
+  // Settings Checkboxes (Sound, Stare Alert, Smart Keep-Awake)
+  const chkSound = document.getElementById("chk-sound") as HTMLInputElement | null;
+  const chkStare = document.getElementById("chk-stare") as HTMLInputElement | null;
+  const chkKeepAwake = document.getElementById("chk-keep-awake") as HTMLInputElement | null;
+
+  // Consolidated initial configuration fetch
   invoke<AppConfig>("get_config").then((cfg) => {
     if (calResult) calResult.textContent = `Current threshold: ${cfg.ear_threshold.toFixed(3)}`;
+    if (chkSound) chkSound.checked = cfg.sound_enabled;
+    if (chkStare) chkStare.checked = cfg.stare_alert_enabled;
+    if (chkKeepAwake) chkKeepAwake.checked = cfg.keep_awake_enabled;
   }).catch(console.error);
+
+  const saveSettings = async () => {
+    try {
+      await invoke("update_config", {
+        soundEnabled: chkSound?.checked ?? null,
+        stareAlertEnabled: chkStare?.checked ?? null,
+        keepAwakeEnabled: chkKeepAwake?.checked ?? null,
+      });
+    } catch (e) {
+      console.error("Failed to save settings:", e);
+    }
+  };
+
+  chkSound?.addEventListener("change", saveSettings);
+  chkStare?.addEventListener("change", saveSettings);
+  chkKeepAwake?.addEventListener("change", saveSettings);
 
   calibrateBtn?.addEventListener("click", async () => {
     if (isCalibrating) return;
