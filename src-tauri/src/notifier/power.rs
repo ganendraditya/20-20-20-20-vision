@@ -80,8 +80,8 @@ impl Drop for SleepBlocker {
 mod macos_impl {
     use std::ffi::c_void;
 
-    #[repr(C)]
-    struct CFString([u8; 0]);
+    // Opaque Core Foundation type — never constructed or dereferenced directly.
+    enum CFString {}
     type CFStringRef = *const CFString;
     type IOPMAssertionID = u32;
     type IOReturn = i32;
@@ -159,12 +159,19 @@ mod windows_impl {
         fn SetThreadExecutionState(es_flags: u32) -> u32;
     }
 
+    /// Set thread display execution state on Windows.
+    /// Note: SetThreadExecutionState is thread-affine; acquire() and release()
+    /// must be called from the same thread context.
     pub fn set_display_required(enable: bool) {
         unsafe {
-            if enable {
-                SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+            let flags = if enable {
+                ES_CONTINUOUS | ES_DISPLAY_REQUIRED
             } else {
-                SetThreadExecutionState(ES_CONTINUOUS);
+                ES_CONTINUOUS
+            };
+            let prev = SetThreadExecutionState(flags);
+            if prev == 0 {
+                eprintln!("[420vision::power] SetThreadExecutionState failed (returned 0)");
             }
         }
     }

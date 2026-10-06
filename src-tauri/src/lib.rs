@@ -198,7 +198,12 @@ fn update_config(
     };
 
     config_to_save.save().map_err(|e| format!("Failed to save config: {}", e))?;
-    println!("[420vision::ipc] Config updated: keep_awake={}", config_to_save.keep_awake_enabled);
+    println!(
+        "[420vision::ipc] Config updated: sound={}, stare_alert={}, keep_awake={}",
+        config_to_save.sound_enabled,
+        config_to_save.stare_alert_enabled,
+        config_to_save.keep_awake_enabled,
+    );
     Ok(config_to_save)
 }
 
