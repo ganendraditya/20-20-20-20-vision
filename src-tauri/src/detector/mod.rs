@@ -120,14 +120,28 @@ impl EarCalculator {
             return None;
         };
 
-        let interocular_width = (p_right.x - p_left.x).abs();
+        // Euclidean 2D distance between eye corners ensures roll-invariance (head tilt)
+        let interocular_width = Self::distance(p_left, p_right);
         if interocular_width <= 1e-4 {
             return None;
         }
 
-        let eye_mid_x = (p_left.x + p_right.x) / 2.0;
-        let nose_offset = (p_nose.x - eye_mid_x).abs();
-        let yaw_ratio = nose_offset / interocular_width;
+        // Project nose offset perpendicular to the interocular vector:
+        // Eye midpoint M = (p_left + p_right) / 2
+        let mx = (p_left.x + p_right.x) / 2.0;
+        let my = (p_left.y + p_right.y) / 2.0;
+
+        // Vector along the eye line: v = (p_right - p_left) / width
+        let vx = (p_right.x - p_left.x) / interocular_width;
+        let vy = (p_right.y - p_left.y) / interocular_width;
+
+        // Offset of nose from midpoint: d = p_nose - M
+        let dx = p_nose.x - mx;
+        let dy = p_nose.y - my;
+
+        // Yaw component is projection of d along the eye axis:
+        let nose_offset_along_eye_axis = (dx * vx + dy * vy).abs();
+        let yaw_ratio = nose_offset_along_eye_axis / interocular_width;
 
         // Threshold: rejects > 35-degree turns and profile silhouettes
         let is_facing_camera = yaw_ratio <= MAX_YAW_RATIO_FRONTAL;

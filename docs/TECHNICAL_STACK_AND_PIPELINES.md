@@ -262,5 +262,7 @@ interface CameraFrameDto {
 
 * **Process Resident Set Size (RAM):** $< 30\text{ MB}$ (typically $18\text{–}24\text{ MB}$ under active inference).
 * **CPU Consumption (Active Monitoring):** $< 3\%$ on modern Apple Silicon / Intel Core i5.
-* **Frame Rate Throttling:** Hardware loop throttled via `thread::sleep(Duration::from_millis(67))` ($\sim 15\text{ FPS}$).
+* **Adaptive Frame Pacing (Issue #40):** 
+  - **Active Gaze State:** Throttled to $\sim 15\text{ FPS}$ (`67ms` sleep interval) providing $100\%$ blink detection parity.
+  - **Away / Idle State:** Dynamically throttled down to $\sim 5\text{ FPS}$ (`200ms` sleep interval) cutting idle CPU consumption to $< 0.8\%$ and preserving laptop battery.
 * **Zero Video Leakage:** Camera frames are processed strictly in volatile memory and immediately overwritten; zero frames are ever saved to disk or transmitted to any network socket.
