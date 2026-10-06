@@ -117,6 +117,9 @@ fn start_calibration(state: State<'_, Mutex<AppState>>) -> String {
 
 #[tauri::command]
 fn submit_calibration_sample(stage: String, ear: f32, state: State<'_, Mutex<AppState>>) -> bool {
+    if !ear.is_finite() {
+        return false;
+    }
     let mut state = state.lock().unwrap();
     match stage.as_str() {
         "open" => state.eye_calibrator.add_open_sample(ear),
@@ -128,29 +131,43 @@ fn submit_calibration_sample(stage: String, ear: f32, state: State<'_, Mutex<App
 
 #[tauri::command]
 fn finalize_calibration(state: State<'_, Mutex<AppState>>) -> CalibrationResult {
-    let mut state = state.lock().unwrap();
-    match state.eye_calibrator.finalize() {
-        Some(threshold) => {
-            // Apply bounds safety clamping [0.16..0.28]
-            let clamped = threshold.clamp(0.16, 0.28);
-            state.config.ear_threshold = clamped;
-            let _ = state.config.save();
-            println!("[420vision::ipc] finalize_calibration -> Success! Personal threshold: {:.3}", clamped);
-            CalibrationResult {
-                success: true,
-                threshold: clamped,
-                message: format!("Calibration complete! Optimal threshold set to {:.3}", clamped),
+    let (res, config_to_save) = {
+        let mut state = state.lock().unwrap();
+        match state.eye_calibrator.finalize() {
+            Some(threshold) => {
+                // Apply bounds safety clamping [0.16..0.28]
+                let clamped = threshold.clamp(0.16, 0.28);
+                state.config.ear_threshold = clamped;
+                let cfg = state.config.clone();
+                println!("[420vision::ipc] finalize_calibration -> Success! Personal threshold: {:.3}", clamped);
+                (
+                    CalibrationResult {
+                        success: true,
+                        threshold: clamped,
+                        message: format!("Calibration complete! Optimal threshold set to {:.3}", clamped),
+                    },
+                    Some(cfg),
+                )
+            }
+            None => {
+                println!("[420vision::ipc] finalize_calibration -> Failed to extract sufficient variance");
+                (
+                    CalibrationResult {
+                        success: false,
+                        threshold: state.config.ear_threshold,
+                        message: "Calibration incomplete or invalid. Retaining previous threshold.".to_string(),
+                    },
+                    None,
+                )
             }
         }
-        None => {
-            println!("[420vision::ipc] finalize_calibration -> Failed to extract sufficient variance");
-            CalibrationResult {
-                success: false,
-                threshold: state.config.ear_threshold,
-                message: "Calibration incomplete or invalid. Retaining previous threshold.".to_string(),
-            }
-        }
+    }; // Lock released here before disk I/O
+
+    if let Some(cfg) = config_to_save {
+        let _ = cfg.save();
     }
+
+    res
 }
 
 #[tauri::command]

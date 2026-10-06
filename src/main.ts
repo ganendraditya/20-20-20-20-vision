@@ -56,6 +56,7 @@ interface CalibrationResult {
 let sandboxBlinks = 0;
 let wasBlinking = false;
 let currentEar = 0.0;
+let isFaceDetected = false;
 let isCalibrating = false;
 let unlistenCameraFrames: (() => void) | null = null;
 
@@ -188,7 +189,7 @@ function setupIPC() {
 
       for (let i = 1; i <= 30; i++) {
         await new Promise((r) => setTimeout(r, 100));
-        if (currentEar > 0.05) {
+        if (isFaceDetected && currentEar > 0.05) {
           await invoke("submit_calibration_sample", { stage: "open", ear: currentEar });
         }
         if (calFill) calFill.style.width = `${(i / 50) * 100}%`;
@@ -200,7 +201,7 @@ function setupIPC() {
 
       for (let i = 31; i <= 50; i++) {
         await new Promise((r) => setTimeout(r, 100));
-        if (currentEar > 0.01) {
+        if (isFaceDetected && currentEar > 0.01) {
           await invoke("submit_calibration_sample", { stage: "closed", ear: currentEar });
         }
         if (calFill) calFill.style.width = `${(i / 50) * 100}%`;
@@ -366,6 +367,7 @@ async function listenToCameraFrames() {
       }
 
       currentEar = data.avg_ear;
+      isFaceDetected = data.is_face_detected;
 
       // Update HUD metrics
       if (earText) earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
