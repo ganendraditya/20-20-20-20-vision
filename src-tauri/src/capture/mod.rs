@@ -396,8 +396,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             }
                         }
 
-                        // Throttle frame rate manually to ~15 FPS to save CPU
-                        thread::sleep(Duration::from_millis(67));
+                        // Adaptive Frame Pacing (Issue #40):
+                        // When user is actively present and facing camera: 15 FPS (~67ms sleep)
+                        // When user is Away / Paused or looking away: throttle to 5 FPS (~200ms sleep) to conserve CPU & battery
+                        let throttle_ms = if is_face { 67 } else { 200 };
+                        thread::sleep(Duration::from_millis(throttle_ms));
                     }
                     Err(nokhwa::NokhwaError::ReadFrameError(_)) 
                     | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
