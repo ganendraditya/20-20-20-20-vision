@@ -12,7 +12,6 @@
       <!-- Titlebar / Header -->
       <header class="app-header">
         <div class="logo-area">
-          <span class="logo-icon">👁️</span>
           <span class="logo-title">420vision</span>
         </div>
         <button id="btn-close" class="header-action-btn" title="Hide to Tray">✕</button>
@@ -62,13 +61,12 @@
             <img id="cam-video-stream" class="cam-live-img" alt="Camera Feed" style="display: none;" />
             <canvas id="cam-mesh-canvas" class="cam-mesh-canvas" style="display: none;"></canvas>
             <div id="cam-loading-placeholder" class="camera-placeholder">
-              <span class="cam-icon">📹</span>
               <p>Camera Stream Ready</p>
-              <small class="text-muted">Tatap kamera untuk menguji kedipan</small>
+              <small class="text-muted">Look at the camera to test blinks</small>
             </div>
             <div id="cam-hud-badge" class="cam-hud-overlay" style="display: none;">
               <span id="cam-hud-ear">EAR: 0.00</span>
-              <span id="cam-hud-face">Muka: Terdeteksi</span>
+              <span id="cam-hud-face">Face: Detected</span>
             </div>
           </div>
           <div class="sandbox-controls">
@@ -85,7 +83,7 @@
                 <input type="checkbox" id="chk-show-mesh" checked />
                 <span>Eye Mesh</span>
               </label>
-              <button id="btn-reset-sandbox" class="btn-sm">🔄 Reset</button>
+              <button id="btn-reset-sandbox" class="btn-sm">Reset</button>
             </div>
           </div>
         </section>
@@ -107,7 +105,7 @@
             </div>
           </div>
           <div class="streak-box">
-            <span id="stat-streak-msg">🔥 Ready to protect your eyes today</span>
+            <span id="stat-streak-msg">Ready to protect your eyes today</span>
           </div>
         </section>
 
@@ -131,13 +129,13 @@
           </div>
 
           <div class="settings-group pt-2">
-            <button id="btn-calibrate" class="btn-primary w-full">🎯 Calibrate Eye Shape (5s)</button>
+            <button id="btn-calibrate" class="btn-primary w-full">Calibrate Eye Shape (5s)</button>
             <div id="calibration-status-box" class="calibration-box" style="display: none;">
-              <div id="calibration-instruction" class="calibration-instruction">Tatap kamera secara wajar...</div>
+              <div id="calibration-instruction" class="calibration-instruction">Look at the camera naturally...</div>
               <div class="calibration-progress-bar">
                 <div id="calibration-progress-fill" class="calibration-progress-fill" style="width: 0%;"></div>
               </div>
-              <div id="calibration-result-text" class="calibration-result">Threshold saat ini: 0.220</div>
+              <div id="calibration-result-text" class="calibration-result">Current threshold: 0.220</div>
             </div>
           </div>
 

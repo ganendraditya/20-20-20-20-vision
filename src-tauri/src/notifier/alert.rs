@@ -66,15 +66,15 @@ impl Notifier {
 
     pub fn notify_stare_warning() {
         Self::send(
-            "👁️ Kedip Yuk! (Dry Eye Alert)",
-            "Kamu sudah >8 detik belum kedip. Istirahatkan kelopak matamu sejenak.",
+            "Blink Prompt (Dry Eye Alert)",
+            "You have stared for >8 seconds without blinking. Rest your eyelids briefly.",
         );
     }
 
     pub fn notify_break_time() {
         Self::send(
-            "✨ 20-20-20-20 Break Time! ✨",
-            "20 Menit layar tercapai! Tatap objek sejauh 20 kaki (6m) selama 20 detik & kedip 20x.",
+            "20-20-20-20 Break Time",
+            "20 minutes of screen presence reached. Look at an object 20 feet (6m) away for 20 seconds and blink 20 times.",
         );
     }
 }
