@@ -245,3 +245,45 @@ fn test_face_tracker_graceful_handoff_on_departure() {
     let handoff = tracker.update(&[user_b]).expect("Must handoff to user_b");
     assert!((handoff.xmin - user_b.xmin).abs() < 1e-4, "Must handoff to remaining user B");
 }
+
+#[test]
+fn test_review_fix_camera_switch_resets_tracker() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Camera 1 locked onto face at top-left
+    let cam1_face = FaceBoundingBox { xmin: 0.1, ymin: 0.1, xmax: 0.3, ymax: 0.3, confidence: 0.9 };
+    tracker.update(&[cam1_face]);
+    assert!(tracker.current_lock().is_some());
+
+    // Switch camera occurs -> tracker must reset to clear stale coordinate space
+    tracker.reset();
+    assert_eq!(tracker.current_lock(), None);
+
+    // Camera 2 detects face at bottom-right
+    let cam2_face = FaceBoundingBox { xmin: 0.7, ymin: 0.7, xmax: 0.9, ymax: 0.9, confidence: 0.85 };
+    let locked = tracker.update(&[cam2_face]).expect("Must lock immediately to new camera face");
+    assert!((locked.xmin - cam2_face.xmin).abs() < 1e-4);
+}
+
+#[test]
+fn test_review_fix_nms_and_total_cmp_handles_nan_and_overlapping_candidates() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Initial user at center (area = 0.30 * 0.30 = 0.09)
+    let b1 = FaceBoundingBox { xmin: 0.20, ymin: 0.20, xmax: 0.50, ymax: 0.50, confidence: 0.95 };
+    let locked = tracker.update(&[b1]).expect("Must lock user b1");
+    assert!((locked.xmin - b1.xmin).abs() < 1e-4);
+
+    // Intruding face (non-overlapping, slightly larger: 0.32 * 0.32 = 0.1024 vs b1: 0.090, 1.13x < 1.35x)
+    let b3 = FaceBoundingBox { xmin: 0.60, ymin: 0.20, xmax: 0.92, ymax: 0.52, confidence: 0.90 };
+    // Redundant raw anchor of b1 that overlaps heavily
+    let b2 = FaceBoundingBox { xmin: 0.21, ymin: 0.21, xmax: 0.51, ymax: 0.51, confidence: 0.80 };
+
+    // Next frame: b2 is present with b1, plus b3
+    let next_locked = tracker.update(&[b1, b2, b3]).expect("Must maintain lock");
+    assert!((next_locked.xmin - b1.xmin).abs() < 1e-4);
+}

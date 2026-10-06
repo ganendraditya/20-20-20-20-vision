@@ -217,6 +217,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             // Handle Camera Selection Changes, initial start, or resume
             if current_cam_index != selected_index || cam_manager.camera.is_none() {
                 cam_manager.release_camera();
+                face_tracker.reset(); // Clear stale spatial state from previous camera
                 match cam_manager.init_camera(selected_index) {
                     Ok(_) => {
                         current_cam_index = selected_index;

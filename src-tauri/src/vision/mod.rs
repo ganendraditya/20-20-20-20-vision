@@ -296,17 +296,17 @@ impl FaceDetectorEngine {
             tr.update(&suppressed_faces)
         } else {
             // Default stateless greedy: largest bounding box
-            suppressed_faces.into_iter().max_by(|a, b| a.area().partial_cmp(&b.area()).unwrap_or(std::cmp::Ordering::Equal))
+            suppressed_faces.iter().copied().max_by(|a, b| a.area().total_cmp(&b.area()))
         };
 
-        Ok((has_face, candidates, primary_face))
+        Ok((has_face, suppressed_faces, primary_face))
     }
 }
 
 /// Simple Non-Maximum Suppression (NMS) for candidate face boxes
 fn nms_filter(boxes: &[FaceBoundingBox], iou_threshold: f32) -> Vec<FaceBoundingBox> {
     let mut sorted = boxes.to_vec();
-    sorted.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 
     let mut selected: Vec<FaceBoundingBox> = Vec::new();
 
@@ -426,15 +426,22 @@ impl FaceTracker {
                     let matched_cand = candidates[match_idx];
 
                     // Check if an intruding candidate is massively larger (> size_hijack_margin x matched area)
-                    let max_cand = candidates
+                    // Exclude the already matched face candidate to strictly evaluate other persons
+                    let max_intruder = candidates
                         .iter()
-                        .max_by(|a, b| a.area().partial_cmp(&b.area()).unwrap_or(std::cmp::Ordering::Equal))
-                        .unwrap();
+                        .enumerate()
+                        .filter(|(idx, _)| *idx != match_idx)
+                        .max_by(|(_, a), (_, b)| a.area().total_cmp(&b.area()))
+                        .map(|(_, b)| b);
 
                     // If intruding person is massively larger (e.g. someone took over the screen directly),
                     // allow legitimate switch; otherwise stick faithfully to active user
-                    let final_target = if max_cand.area() > matched_cand.area() * self.size_hijack_margin {
-                        *max_cand
+                    let final_target = if let Some(intruder) = max_intruder {
+                        if intruder.area() > matched_cand.area() * self.size_hijack_margin {
+                            *intruder
+                        } else {
+                            matched_cand
+                        }
                     } else {
                         matched_cand
                     };
