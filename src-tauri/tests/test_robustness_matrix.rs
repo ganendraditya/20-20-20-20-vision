@@ -351,6 +351,46 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // TIER 5 (Rigor Upgrade #59): OS Thread Jitter & High-Load Scheduling Stalls
+    // Simulates erratic thread delivery (delta t varying between 15ms and 320ms due to CPU spikes)
+    // ---------------------------------------------------------------------------------------------
+    for fps in [30, 15] {
+        let mut detector = BlinkDetector::with_alpha(threshold, 2.0, 0.40);
+        let mut now = Instant::now();
+        let open_lm = generate_heterogeneous_landmarks(3.2, 3.2, 10.0, 0.0, 0.0, 0.0);
+        let closed_lm = generate_heterogeneous_landmarks(0.8, 0.8, 10.0, 0.0, 0.0, 0.0);
+
+        // Pre-settle
+        for _ in 0..8 {
+            detector.update(&open_lm, now);
+            now += Duration::from_millis(1000 / fps);
+        }
+
+        // Stochastic thread jitter schedule for 250ms blink:
+        // [stall 120ms, fast burst 18ms, stall 110ms]
+        let jitter_schedule = [120u64, 18, 110];
+        for &stall_dt in &jitter_schedule {
+            detector.update(&closed_lm, now);
+            now += Duration::from_millis(stall_dt);
+        }
+
+        // Reopen with thread recovery
+        detector.update(&open_lm, now);
+        now += Duration::from_millis(1000 / fps);
+        let final_evt = detector.update(&open_lm, now);
+        let passed = final_evt.total_blinks == 1;
+
+        results.push(ScenarioResult {
+            tier: "TIER 5 (Thread Jitter)",
+            name: "Stochastic OS Scheduling Stall (18ms..120ms Burst Jitter)",
+            fps,
+            expected_blinks: 1,
+            detected_blinks: final_evt.total_blinks,
+            passed,
+        });
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // PRINT SCORECARD SUMMARY
     // ---------------------------------------------------------------------------------------------
     let total_cases = results.len();
