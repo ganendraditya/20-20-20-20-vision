@@ -168,7 +168,7 @@ function setupIPC() {
 
   // Load current threshold on init
   invoke<AppConfig>("get_config").then((cfg) => {
-    if (calResult) calResult.textContent = `Threshold saat ini: ${cfg.ear_threshold.toFixed(3)}`;
+    if (calResult) calResult.textContent = `Current threshold: ${cfg.ear_threshold.toFixed(3)}`;
   }).catch(console.error);
 
   calibrateBtn?.addEventListener("click", async () => {

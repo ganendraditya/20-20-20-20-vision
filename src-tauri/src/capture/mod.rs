@@ -323,7 +323,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             // Run presence timer
                             let presence_state = presence_timer.update(is_face, now);
                             if presence_state.break_triggered {
-                                println!("[420vision::alert] 20-20-20 Break time triggered!");
+                                println!("[420vision::alert] 20-20-20-20 Break time triggered!");
                                 crate::notifier::Notifier::notify_break_time();
                                 crate::notifier::AudioPlayer::play_break_chime();
                             }
