@@ -25,6 +25,9 @@ fn create_synthetic_landmarks(left_height: f32, right_height: f32, eye_width: f3
     landmarks[385] = Landmark3D { x: eye_width * 0.7, y: right_height, z: 0.0 };
     landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
+    // Nose tip (index 1) centered at midpoint between corners (33 and 263) for frontal head pose
+    landmarks[1] = Landmark3D { x: eye_width * 0.5, y: -eye_width * 0.5, z: 0.0 };
+
     landmarks
 }
 
@@ -171,7 +174,111 @@ fn test_benchmark_ema_alpha_noise_rejection_and_step_response() {
         now += Duration::from_millis(67);
         let evt = detector.update(&open_lm, now);
 
-        println!("{:<8.2} | {:<16} | {:<16} | {:<25}", alpha, evt.total_blinks, evt.stare_warning, if evt.total_blinks == 1 { "✅ Clean 1 Blink" } else { "❌ Mismatch" });
+        println!("{:<8.2} | {:<16} | {:<16} | {:<25}", alpha, evt.total_blinks, evt.stare_warning, if evt.total_blinks == 1 { "Clean 1 Blink" } else { "Mismatch" });
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 5 (Rigor Upgrade #59): AC Mains Strobe Lighting Immunity (50Hz & 60Hz)
+    // Simulates sinusoidal light intensity flicker from fluorescent tubes / cheap office LEDs
+    // -------------------------------------------------------------------------
+    println!("\n[TEST 5: AC Mains 50Hz & 60Hz Strobe Immunity (15 FPS Sampling)]");
+    println!("{:<8} | {:<16} | {:<16} | {:<16}", "Alpha", "Strobe Freq", "Variance Red %", "Strobe Triggered Blink?");
+    println!("{:-<8}-|-{:-<16}-|-{:-<16}-|-{:-<16}", "", "", "", "");
+
+    for &freq in &[50.0f32, 60.0f32] {
+        let base_ear = 0.30f32;
+        let strobe_amp = 0.035f32; // +/- 0.035 optical ripple
+
+        let mut raw_strobe_samples = Vec::with_capacity(300);
+        for f in 0..300 {
+            // Include micro-phase drift (66.67ms actual frame interval = ~14.999 FPS)
+            let t = f as f32 * 0.066667; 
+            let ripple = (2.0 * std::f32::consts::PI * freq * t).sin() * strobe_amp;
+            raw_strobe_samples.push(base_ear + ripple);
+        }
+        let raw_strobe_mean = raw_strobe_samples.iter().sum::<f32>() / 300.0;
+        let raw_strobe_var = raw_strobe_samples.iter().map(|&x| (x - raw_strobe_mean).powi(2)).sum::<f32>() / 300.0;
+
+        for &alpha in &[0.30, 0.40, 0.50] {
+            let mut detector = BlinkDetector::with_alpha(threshold, 2.0, alpha);
+            let mut calc = EarCalculator::new(alpha);
+            let mut smoothed = Vec::with_capacity(300);
+            let mut now = Instant::now();
+
+            let mut falsely_triggered = false;
+            for &val in &raw_strobe_samples {
+                let lm = create_synthetic_landmarks(val * 10.0, val * 10.0, 10.0);
+                let m = calc.calculate(&lm).unwrap();
+                smoothed.push(m.smoothed_ear);
+
+                let evt = detector.update(&lm, now);
+                if evt.total_blinks > 0 {
+                    falsely_triggered = true;
+                }
+                now += Duration::from_millis(67);
+            }
+
+            let s_mean = smoothed.iter().sum::<f32>() / 300.0;
+            let s_var = smoothed.iter().map(|&x| (x - s_mean).powi(2)).sum::<f32>() / 300.0;
+            let red_pct = if raw_strobe_var > 1e-7 {
+                (1.0 - (s_var / raw_strobe_var)) * 100.0
+            } else {
+                100.0 // Near zero raw ripple due to exact harmonic cancellation
+            };
+
+            println!("{:<8.2} | {:<14}Hz | {:<15.1}% | {:<20}",
+                alpha, freq as u32, red_pct, if falsely_triggered { "FAIL (False Blink!)" } else { "PASS (Zero False Blinks)" });
+
+            assert!(!falsely_triggered, "Alpha {} must never trigger false blinks on {}Hz AC strobe!", alpha, freq);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST 6 (Rigor Upgrade #59): Micro-Blink Duration Boundary Sweep (40ms..140ms)
+    // Sweeps micro-blink duration across 30 FPS vs 15 FPS vs 10 FPS
+    // -------------------------------------------------------------------------
+    println!("\n[TEST 6: Micro-Blink Temporal Boundary Sweep across Frame Rates]");
+    println!("{:<8} | {:<12} | {:<18} | {:<16}", "FPS", "Duration (ms)", "Closed Frames", "Capture Status");
+    println!("{:-<8}-|-{:-<12}-|-{:-<18}-|-{:-<16}", "", "", "", "");
+
+    for &fps in &[30u64, 15u64, 10u64] {
+        let frame_dt = 1000 / fps;
+        for &dur_ms in &[40u64, 60, 80, 100, 120, 140] {
+            let mut detector = BlinkDetector::with_alpha(threshold, 2.0, 0.40);
+            let mut now = Instant::now();
+
+            // Settle open state
+            let open_lm = create_synthetic_landmarks(3.2, 3.2, 10.0);
+            for _ in 0..10 {
+                detector.update(&open_lm, now);
+                now += Duration::from_millis(frame_dt);
+            }
+
+            // Perform blink of duration dur_ms
+            let closed_lm = create_synthetic_landmarks(0.8, 0.8, 10.0);
+            let closed_frames = (dur_ms as f32 / frame_dt as f32).round() as u64;
+
+            for _ in 0..closed_frames {
+                detector.update(&closed_lm, now);
+                now += Duration::from_millis(frame_dt);
+            }
+
+            // Settle reopened (advance by frame_dt to allow state machine to observe reopened eye)
+            detector.update(&open_lm, now);
+            now += Duration::from_millis(frame_dt);
+            let final_evt = detector.update(&open_lm, now);
+
+            let status = if final_evt.total_blinks == 1 { "CAPTURED" } else { "REJECTED (<2 frames guard or <80ms)" };
+            println!("{:<8} | {:<12} | {:<18} | {:<16}", fps, dur_ms, closed_frames, status);
+
+            // Verified biological invariant:
+            // Measured duration in state machine is from first closed frame to first reopened frame:
+            // `duration = closed_frames * frame_dt`
+            let measured_dur_ms = closed_frames * frame_dt;
+            if closed_frames >= 2 && measured_dur_ms >= 80 && measured_dur_ms <= 800 {
+                assert_eq!(final_evt.total_blinks, 1, "Blinks meeting biological threshold must be captured");
+            }
+        }
     }
 
     println!("=========================================================================================\n");
