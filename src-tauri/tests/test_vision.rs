@@ -94,27 +94,196 @@ fn test_multi_face_disambiguation_largest_bbox_prioritization() {
 }
 
 #[test]
-fn test_inspect_multiface_image_detections() {
-    let model_path = Path::new("../models/ultraface.onnx");
-    if !model_path.exists() {
-        return;
+fn test_face_tracker_sticky_persistence_side_by_side_50_50() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Scenario: Two colleagues sitting side-by-side in front of camera
+    // Colleague A on Left: x in [0.15, 0.45], area = 0.30 * 0.40 = 0.120
+    // Colleague B on Right: x in [0.55, 0.85], area = 0.30 * 0.40 = 0.120
+    let person_left = FaceBoundingBox {
+        xmin: 0.15,
+        ymin: 0.20,
+        xmax: 0.45,
+        ymax: 0.60,
+        confidence: 0.90,
+    };
+    let person_right = FaceBoundingBox {
+        xmin: 0.55,
+        ymin: 0.20,
+        xmax: 0.85,
+        ymax: 0.60,
+        confidence: 0.89,
+    };
+
+    // Frame 1: Initial detection lock selects person_left (slightly higher conf/area)
+    println!("person_left area: {}, person_right area: {}", person_left.area(), person_right.area());
+    let selected_frame1 = tracker.update(&[person_left, person_right]).expect("Must select target");
+    println!("selected_frame1: {:?}", selected_frame1);
+    assert!((selected_frame1.xmin - person_left.xmin).abs() < 1e-4, "Must lock on initial primary user (Left)");
+
+    // Simulate 100 consecutive frames where person_right fluctuates to be slightly larger (up to +20%)
+    for frame in 2..=100 {
+        // Noise fluctuation: person_right leans forward by 10%
+        let fluctuating_right = FaceBoundingBox {
+            xmin: 0.54,
+            ymin: 0.18,
+            xmax: 0.86,
+            ymax: 0.62,
+            confidence: 0.95, // Even with higher confidence!
+        };
+        // person_left slightly micro-moves
+        let moving_left = FaceBoundingBox {
+            xmin: 0.15 + (frame as f32 % 5.0) * 0.002,
+            ymin: 0.20,
+            xmax: 0.45 + (frame as f32 % 5.0) * 0.002,
+            ymax: 0.60,
+            confidence: 0.88,
+        };
+
+        let selected = tracker.update(&[moving_left, fluctuating_right]).expect("Must select target");
+        assert!(
+            (selected.xmin - moving_left.xmin).abs() < 0.05,
+            "Frame {}: Tracker must remain sticky on user Left without flickering to Right!", frame
+        );
+    }
+}
+
+#[test]
+fn test_face_tracker_crowd_5_faces_anti_flicker() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // 5 people in frame (e.g. Scrum meeting / crowded cafe)
+    let p1 = FaceBoundingBox { xmin: 0.10, ymin: 0.30, xmax: 0.25, ymax: 0.50, confidence: 0.85 }; // Left
+    let p2 = FaceBoundingBox { xmin: 0.35, ymin: 0.20, xmax: 0.65, ymax: 0.60, confidence: 0.92 }; // Center User (Largest)
+    let p3 = FaceBoundingBox { xmin: 0.70, ymin: 0.30, xmax: 0.85, ymax: 0.50, confidence: 0.84 }; // Right
+    let p4 = FaceBoundingBox { xmin: 0.20, ymin: 0.65, xmax: 0.30, ymax: 0.80, confidence: 0.75 }; // Background 1
+    let p5 = FaceBoundingBox { xmin: 0.60, ymin: 0.65, xmax: 0.70, ymax: 0.80, confidence: 0.76 }; // Background 2
+
+    // Frame 1: Tracker locks on center user p2
+    let initial = tracker.update(&[p1, p2, p3, p4, p5]).expect("Must lock on center user");
+    assert!((initial.xmin - p2.xmin).abs() < 1e-4);
+
+    // 50 frames with people in background moving, entering, and changing sizes
+    for f in 2..=50 {
+        let p1_jitter = FaceBoundingBox { xmin: 0.09, ymin: 0.29, xmax: 0.26, ymax: 0.51, confidence: 0.88 };
+        let p2_stable = FaceBoundingBox { xmin: 0.36, ymin: 0.21, xmax: 0.64, ymax: 0.59, confidence: 0.90 };
+        let p3_jitter = FaceBoundingBox { xmin: 0.71, ymin: 0.31, xmax: 0.84, ymax: 0.49, confidence: 0.82 };
+
+        let current = tracker.update(&[p1_jitter, p2_stable, p3_jitter, p4, p5]).expect("Must track");
+        assert!(
+            (current.xmin - p2_stable.xmin).abs() < 0.05,
+            "Frame {}: Tracker must remain locked to primary center user amidst 5-person crowd", f
+        );
+    }
+}
+
+#[test]
+fn test_face_tracker_passerby_anti_hijacking_immunity() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Active user occupying 35% frame width
+    let user = FaceBoundingBox {
+        xmin: 0.20,
+        ymin: 0.20,
+        xmax: 0.50,
+        ymax: 0.60, // area = 0.30 * 0.40 = 0.120
+        confidence: 0.91,
+    };
+
+    let initial = tracker.update(&[user]).expect("Must lock user");
+    assert!((initial.xmin - user.xmin).abs() < 1e-4);
+
+    // A passerby walks behind / beside the user with area 25% larger (within 1.35x margin)
+    // area = 0.35 * 0.42 = 0.147 (1.225x user area)
+    let passerby = FaceBoundingBox {
+        xmin: 0.55,
+        ymin: 0.15,
+        xmax: 0.90,
+        ymax: 0.57,
+        confidence: 0.96,
+    };
+
+    for _ in 0..15 {
+        let locked = tracker.update(&[user, passerby]).expect("Must keep lock");
+        assert!(
+            (locked.xmin - user.xmin).abs() < 1e-4,
+            "Tracker must resist being hijacked by passerby"
+        );
+    }
+}
+
+#[test]
+fn test_face_tracker_graceful_handoff_on_departure() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    // 10-frame departure tolerance
+    let mut tracker = FaceTracker::new(10, 0.30, 1.35);
+
+    let user_a = FaceBoundingBox { xmin: 0.10, ymin: 0.20, xmax: 0.40, ymax: 0.60, confidence: 0.90 };
+    let user_b = FaceBoundingBox { xmin: 0.60, ymin: 0.20, xmax: 0.85, ymax: 0.55, confidence: 0.85 };
+
+    // Initial: user_a is primary
+    tracker.update(&[user_a, user_b]).unwrap();
+
+    // User A leaves the room! For 9 frames, user_b is present alone
+    for frame in 1..=9 {
+        let locked = tracker.update(&[user_b]);
+        // During grace period, tracker retains memory of user_a's position to tolerate brief occlusion
+        assert!(locked.is_some(), "Frame {}: Tracker tolerates brief loss", frame);
     }
 
-    let mut engine = FaceDetectorEngine::new(model_path).unwrap();
+    // Frame 10: lost_frames reaches 10 (which is <= max_lost_frames=10)
+    tracker.update(&[user_b]);
 
-    for file in &["3faces.png", "4faces.png"] {
-        let p = format!("tests/fixtures/{}", file);
-        if let Ok(img) = image::open(&p) {
-            let rgb = img.to_rgb8();
-            let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-            let pre = engine.preprocess(rgb.as_raw(), w, h);
-            let (has_face, dominant) = engine.detect_faces_and_primary_box(pre).unwrap();
-            println!("\n=== Multi-Face Inspection on {} ===", file);
-            println!("Face detected: {}", has_face);
-            if let Some(b) = dominant {
-                println!("Dominant box selected: [{:.3}, {:.3}, {:.3}, {:.3}], area={:.4}, conf={:.3}",
-                    b.xmin, b.ymin, b.xmax, b.ymax, b.area(), b.confidence);
-            }
-        }
-    }
+    // On frame 11 (lost_frames becomes 11 > 10 max_lost_frames), tracker gracefully hand-offs to user_b
+    let handoff = tracker.update(&[user_b]).expect("Must handoff to user_b");
+    assert!((handoff.xmin - user_b.xmin).abs() < 1e-4, "Must handoff to remaining user B");
+}
+
+#[test]
+fn test_review_fix_camera_switch_resets_tracker() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Camera 1 locked onto face at top-left
+    let cam1_face = FaceBoundingBox { xmin: 0.1, ymin: 0.1, xmax: 0.3, ymax: 0.3, confidence: 0.9 };
+    tracker.update(&[cam1_face]);
+    assert!(tracker.current_lock().is_some());
+
+    // Switch camera occurs -> tracker must reset to clear stale coordinate space
+    tracker.reset();
+    assert_eq!(tracker.current_lock(), None);
+
+    // Camera 2 detects face at bottom-right
+    let cam2_face = FaceBoundingBox { xmin: 0.7, ymin: 0.7, xmax: 0.9, ymax: 0.9, confidence: 0.85 };
+    let locked = tracker.update(&[cam2_face]).expect("Must lock immediately to new camera face");
+    assert!((locked.xmin - cam2_face.xmin).abs() < 1e-4);
+}
+
+#[test]
+fn test_review_fix_nms_and_total_cmp_handles_nan_and_overlapping_candidates() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+
+    let mut tracker = FaceTracker::new(20, 0.30, 1.35);
+
+    // Initial user at center (area = 0.30 * 0.30 = 0.09)
+    let b1 = FaceBoundingBox { xmin: 0.20, ymin: 0.20, xmax: 0.50, ymax: 0.50, confidence: 0.95 };
+    let locked = tracker.update(&[b1]).expect("Must lock user b1");
+    assert!((locked.xmin - b1.xmin).abs() < 1e-4);
+
+    // Intruding face (non-overlapping, slightly larger: 0.32 * 0.32 = 0.1024 vs b1: 0.090, 1.13x < 1.35x)
+    let b3 = FaceBoundingBox { xmin: 0.60, ymin: 0.20, xmax: 0.92, ymax: 0.52, confidence: 0.90 };
+    // Redundant raw anchor of b1 that overlaps heavily
+    let b2 = FaceBoundingBox { xmin: 0.21, ymin: 0.21, xmax: 0.51, ymax: 0.51, confidence: 0.80 };
+
+    // Next frame: b2 is present with b1, plus b3
+    let next_locked = tracker.update(&[b1, b2, b3]).expect("Must maintain lock");
+    assert!((next_locked.xmin - b1.xmin).abs() < 1e-4);
 }

@@ -81,7 +81,7 @@
 
 ## 3. Computer Vision & Signal Processing Pipelines
 
-### 3.1 Two-Stage Edge Vision Pipeline
+### 3.1 Two-Stage Edge Vision Pipeline & Multi-Subject Sticky Tracking
 
 ```text
 [ Incoming Camera Frame (1280x720 RAW RGB) ]
@@ -101,7 +101,15 @@
           │
           └── YES
                    │
-                   ▼ (Multi-Face Disambiguation: Select Dominant Box with max(Area))
+                   ▼
+     ┌─────────────────────────────────────────────────────────┐
+     │ Multi-Subject Sticky Tracker (Spatial Hysteresis)       │ ◄── Issue #52
+     │ • IoU continuity match (IoU >= 0.30) with last lock     │
+     │ • Anti-hijack margin (intrusive size <= 1.35x locked)   │
+     │ • 1.5s (22 frames) graceful loss tolerance before reset │
+     └─────────────┬───────────────────────────────────────────┘
+                   │ Primary User Bounding Box
+                   ▼
      ┌───────────────────────────┐
      │ STAGE 2: MediaPipe FaceMesh│ ◄── Input: [1, 192, 192, 3] NHWC, normalized [0.0..1.0]
      │ 468 3D Landmarks ONNX     │     Crop: Dynamic square padded around dominant primary box
