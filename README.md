@@ -33,7 +33,14 @@ The legitimate medical guideline from the **American Optometric Association (AOA
   - **macOS:** macOS 11+ (Apple Silicon & Intel, verified in automated CI).
   - **Windows:** Windows 10 / 11 64-bit (verified in automated CI).
 - **Permissions:** Camera access permission must be granted to the application when prompted by the operating system.
-- **Privacy Assurance:** Computer vision processing operates 100% locally on-device in volatile memory. No video feeds or photos are ever saved to disk or transmitted across any network.
+
+---
+
+## Privacy by Design
+
+- **100% On-Device Processing:** Computer vision inference (UltraFace & FaceMesh) executes strictly in volatile memory (RAM).
+- **Zero Video Leakage:** No video feeds, frames, or photos are ever saved to disk or transmitted across any network socket.
+- **Always-Yield Etiquette:** The camera stream is instantly released when Zoom, Google Meet, Microsoft Teams, or FaceTime requests the device.
 
 ---
 

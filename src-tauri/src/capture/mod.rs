@@ -264,11 +264,10 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
 
-                            // Gatekeeper: Verify facial presence & extract primary dominant bounding box with Sticky Tracking (Issue #43 & #52)
+                            // Gatekeeper: Verify facial presence & extract primary dominant bounding box with Adaptive RoI Zoom (Issue #43, #52, #63)
                             let (face_present, dominant_bbox) = if let Some(detector) = &mut face_detector {
-                                let det_input = detector.preprocess(raw_bytes, w, h);
-                                match detector.detect_faces_and_track(det_input, Some(&mut face_tracker)) {
-                                    Ok((detected, _, bbox)) => (detected, bbox),
+                                match detector.detect_with_adaptive_roi(raw_bytes, w, h, Some(&mut face_tracker)) {
+                                    Ok((detected, bbox)) => (detected, bbox),
                                     Err(e) => {
                                         eprintln!("[420vision::vision] FaceDetector error: {}", e);
                                         (true, None) // Fail-safe: fallback to FaceMesh on detector error

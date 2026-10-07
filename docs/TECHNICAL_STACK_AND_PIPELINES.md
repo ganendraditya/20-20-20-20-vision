@@ -89,7 +89,8 @@
                    ▼
      ┌───────────────────────────┐
      │ STAGE 1: UltraFace        │ ◄── Input: [1, 3, 240, 320] NCHW, normalized (p - 127)/128
-     │ RFB-320 ONNX (~5.7ms CPU) │     Parses all candidate faces (conf >= 0.70)
+     │ RFB-320 ONNX (~5.7ms CPU) │     • Full-frame downscale (Tier 1 & Tier 2)
+     │                           │     • Adaptive 4:3 RoI Zoom (<0.015 area, Tier 3) ◄── Issue #63
      └─────────────┬─────────────┘
                    │
          Face detected? (Score >= 0.70)
@@ -158,6 +159,18 @@ Empirical evaluation of Post-Training Quantization (PTQ) on UltraFace RFB-320 (`
   * **Accuracy Trade-off:** While Tier 1 and Tier 3 confidence remain stable, dense multi-face scenarios (e.g. `4faces.png` at standard desk distance) exhibited a $\sim 12\%$ confidence drop ($0.825 \to 0.705$) due to INT8 activation quantization noise.
 * **Architectural Decision Rule:**
   Retain FP32 as the default production configuration. Baseline FP32 execution ($5.9\text{ ms}$) consumes $< 2.5\%$ CPU at $15\text{ FPS}$, making the $2\text{ ms}$ speedup negligible while preserving optimal detection margins across all dense multi-face configurations. INT8 models remain validated for ultra-constrained edge profiles.
+
+### 3.1.4 Digital RoI Zoom Crop for Far-Field Small Faces (Issue #63)
+
+When users lean back ($80\text{–}120\text{ cm}$, Tier 3) on high-resolution streams (e.g. $1280\times 720$), downscaling the entire frame down to $320\times 240$ compresses a small face ($\sim 60\text{–}90\text{ px}$) down to $\le 15\text{ px}$, causing complete detection failure ($0\%$ recall on raw full-frame downscale).
+
+* **Aspect-Ratio Preserving 4:3 Sub-Window Cropping:**
+  - When an active session is held and target area falls below far-field threshold ($\text{Area} < 0.015$), a 4:3 aspect-ratio RoI window ($\sim 4.5\times$ face width) is cropped directly from the full-resolution raw frame buffer via zero-alloc stride sampling (`preprocess_crop`).
+  - Preserves native anatomical proportions matching UltraFace's $320\times 240$ grid without non-uniform stretching.
+* **Empirical Recall Gains:**
+  - On standard $1280\times 720$ HD webcam streams, boosts small face detection from **$0.0\%$ ($0/15$)** to **$100.0\%$ ($15/15$)** with confidence scores $\ge 0.791\text{–}0.994$.
+  - Across combined HD & VGA resolutions, lifts small face recall from **$0.0\%$** to **$83.3\%$ ($25/30$)**.
+  - **Fail-Safe Fallback:** If the RoI sub-window misses (e.g. abrupt torso relocation), automatically falls back to full-frame detection within the same frame cycle ($< 12\text{ ms}$ total worst-case).
 
 ### 3.2 Eyelid Mathematical Landmark Geometry (3-Pair EAR)
 

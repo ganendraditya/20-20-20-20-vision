@@ -204,20 +204,34 @@ impl FaceDetectorEngine {
     /// Preprocess an RGB image buffer (width x height) into [1, 3, 240, 320] normalized float tensor (NCHW).
     /// Resizes the camera frame to 320x240 and normalizes with (pixel - 127) / 128.
     pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize) -> Array4<f32> {
+        self.preprocess_crop(rgb_data, width, height, 0, 0, width, height)
+    }
+
+    /// Preprocess a sub-region (crop_x, crop_y, crop_w, crop_h) of an RGB image buffer into [1, 3, 240, 320] tensor.
+    pub fn preprocess_crop(
+        &self,
+        rgb_data: &[u8],
+        full_width: usize,
+        full_height: usize,
+        crop_x: usize,
+        crop_y: usize,
+        crop_w: usize,
+        crop_h: usize,
+    ) -> Array4<f32> {
         let mut input_tensor = Array4::<f32>::zeros((1, 3, 240, 320));
 
-        if width == 0 || height == 0 {
+        if full_width == 0 || full_height == 0 || crop_w == 0 || crop_h == 0 {
             return input_tensor;
         }
 
-        let scale_x = width as f32 / 320.0;
-        let scale_y = height as f32 / 240.0;
+        let scale_x = crop_w as f32 / 320.0;
+        let scale_y = crop_h as f32 / 240.0;
 
         for y in 0..240 {
             for x in 0..320 {
-                let src_x = (x as f32 * scale_x).min((width - 1) as f32) as usize;
-                let src_y = (y as f32 * scale_y).min((height - 1) as f32) as usize;
-                let src_idx = (src_y * width + src_x) * 3;
+                let src_x = (crop_x + (x as f32 * scale_x) as usize).min(full_width - 1);
+                let src_y = (crop_y + (y as f32 * scale_y) as usize).min(full_height - 1);
+                let src_idx = (src_y * full_width + src_x) * 3;
 
                 if src_idx + 2 < rgb_data.len() {
                     // Normalize [0..255] with (p - 127.0) / 128.0
@@ -248,6 +262,83 @@ impl FaceDetectorEngine {
     ) -> Result<(bool, Option<FaceBoundingBox>), String> {
         let (has_face, _, primary_box) = self.detect_faces_and_track(input_tensor, None)?;
         Ok((has_face, primary_box))
+    }
+
+    /// Run FaceDetector with Adaptive RoI Zoom (Issue #63).
+    /// If tracker holds an established lock on a small far-field face (area < FAR_FIELD_THRESHOLD),
+    /// crops an aspect-ratio-preserving 4:3 sub-window around the last known position.
+    /// This preserves pixel resolution for small/distant faces, boosting far-field recall.
+    /// If RoI detection succeeds, remaps the coordinates back to full-frame space.
+    /// If RoI detection fails or no face is currently locked, falls back to full-frame detection.
+    pub fn detect_with_adaptive_roi(
+        &mut self,
+        rgb_data: &[u8],
+        width: usize,
+        height: usize,
+        mut tracker: Option<&mut FaceTracker>,
+    ) -> Result<(bool, Option<FaceBoundingBox>), String> {
+        const FAR_FIELD_AREA_THRESHOLD: f32 = 0.015;
+
+        // Check if tracker has a locked face that is small (far-field / leaning back)
+        let far_field_lock = tracker.as_ref().and_then(|t| t.current_lock()).filter(|b| b.area() < FAR_FIELD_AREA_THRESHOLD);
+
+        if let Some(tracked) = far_field_lock {
+            let cx = (tracked.xmin + tracked.xmax) * 0.5 * width as f32;
+            let cy = (tracked.ymin + tracked.ymax) * 0.5 * height as f32;
+            let face_w_px = (tracked.xmax - tracked.xmin).max(0.01) * width as f32;
+
+            // Expand by ~4.5x to preserve anatomical context
+            let min_w = (width as f32 * 0.35).min(width as f32).max(32.0);
+            let mut roi_w_px = (face_w_px * 4.5).clamp(min_w, width as f32);
+            let mut roi_h_px = (roi_w_px * 0.75).round();
+            if roi_h_px > height as f32 {
+                roi_h_px = height as f32;
+                roi_w_px = (roi_h_px * (4.0 / 3.0)).round().min(width as f32);
+            }
+
+            let x0 = (cx - roi_w_px * 0.5).clamp(0.0, (width as f32 - roi_w_px).max(0.0)) as usize;
+            let y0 = (cy - roi_h_px * 0.5).clamp(0.0, (height as f32 - roi_h_px).max(0.0)) as usize;
+            let rw = (roi_w_px as usize).min(width.saturating_sub(x0));
+            let rh = (roi_h_px as usize).min(height.saturating_sub(y0));
+
+            if rw > 10 && rh > 10 {
+                let roi_tensor = self.preprocess_crop(rgb_data, width, height, x0, y0, rw, rh);
+                let (det_roi, candidates_roi, _) = self.detect_faces_and_track(roi_tensor, None)?;
+
+                if det_roi && !candidates_roi.is_empty() {
+                    let roi_norm_x = x0 as f32 / width as f32;
+                    let roi_norm_y = y0 as f32 / height as f32;
+                    let roi_norm_w = rw as f32 / width as f32;
+                    let roi_norm_h = rh as f32 / height as f32;
+
+                    let remapped_candidates: Vec<FaceBoundingBox> = candidates_roi
+                        .into_iter()
+                        .map(|b| FaceBoundingBox {
+                            xmin: (roi_norm_x + b.xmin * roi_norm_w).clamp(0.0, 1.0),
+                            ymin: (roi_norm_y + b.ymin * roi_norm_h).clamp(0.0, 1.0),
+                            xmax: (roi_norm_x + b.xmax * roi_norm_w).clamp(0.0, 1.0),
+                            ymax: (roi_norm_y + b.ymax * roi_norm_h).clamp(0.0, 1.0),
+                            confidence: b.confidence,
+                        })
+                        .collect();
+
+                    let primary = if let Some(tr) = tracker.as_deref_mut() {
+                        tr.update(&remapped_candidates)
+                    } else {
+                        remapped_candidates.into_iter().max_by(|a, b| a.area().total_cmp(&b.area()))
+                    };
+
+                    if let Some(target) = primary {
+                        return Ok((true, Some(target)));
+                    }
+                }
+            }
+        }
+
+        // Fallback or full-frame execution
+        let full_tensor = self.preprocess(rgb_data, width, height);
+        let (has_face, _, primary_face) = self.detect_faces_and_track(full_tensor, tracker)?;
+        Ok((has_face, primary_face))
     }
 
     /// Run FaceDetector inference and select primary user with optional Sticky Tracking.
