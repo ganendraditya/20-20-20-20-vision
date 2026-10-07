@@ -567,3 +567,73 @@ fn test_video_continuous_multi_scenario_chaos_matrix_30_videos() {
 
     assert_eq!(scenarios_passed, total_scenarios, "All 30 continuous video scenarios must pass retention criteria");
 }
+
+#[test]
+fn test_adaptive_roi_zoom_on_real_camera_resolutions() {
+    use vision420_lib::vision::{FaceBoundingBox, FaceTracker};
+    let model_path = Path::new("../models/ultraface.onnx");
+    if !model_path.exists() {
+        return;
+    }
+    let mut engine = FaceDetectorEngine::new(model_path).unwrap();
+
+    let camera_resolutions = [
+        ("1280x720 (Standard HD)", 1280usize, 720usize),
+        ("640x480 (VGA)", 640usize, 480usize),
+    ];
+
+    let fixture_paths = ["tests/fixtures/1face.png", "tests/fixtures/3faces.png", "tests/fixtures/4faces.png"];
+    let mut full_frame_detected = 0;
+    let mut roi_zoom_detected = 0;
+    let mut _total_cases = 0;
+
+    for (_res_name, w, h) in &camera_resolutions {
+        for p in &fixture_paths {
+            let img = image::open(p).unwrap().to_rgb8();
+            let face_w = (*w as f32 * 0.07).round() as u32;
+            let face_h = face_w;
+            let small_face = image::imageops::resize(&img, face_w, face_h, image::imageops::FilterType::Triangle);
+
+            let positions = [
+                (0.50f32, 0.50f32),
+                (0.25f32, 0.45f32),
+                (0.75f32, 0.45f32),
+            ];
+
+            for (px_ratio, py_ratio) in positions {
+                _total_cases += 1;
+                let mut frame = image::RgbImage::new(*w as u32, *h as u32);
+                for px in frame.pixels_mut() { *px = image::Rgb([115, 115, 115]); }
+
+                let ox = ((*w as f32 * px_ratio).round() as u32).saturating_sub(face_w / 2).min(*w as u32 - face_w);
+                let oy = ((*h as f32 * py_ratio).round() as u32).saturating_sub(face_h / 2).min(*h as u32 - face_h);
+                image::imageops::overlay(&mut frame, &small_face, ox as i64, oy as i64);
+
+                let pre_full = engine.preprocess(frame.as_raw(), *w, *h);
+                let (det_full, _, primary_full) = engine.detect_faces_and_track(pre_full, None).unwrap();
+                let conf_full = primary_full.map(|b| b.confidence).unwrap_or(0.0);
+                if det_full && conf_full >= 0.70 {
+                    full_frame_detected += 1;
+                }
+
+                let mut tracker = FaceTracker::default();
+                let seed_box = FaceBoundingBox {
+                    xmin: (ox as f32) / *w as f32,
+                    ymin: (oy as f32) / *h as f32,
+                    xmax: (ox as f32 + face_w as f32) / *w as f32,
+                    ymax: (oy as f32 + face_h as f32) / *h as f32,
+                    confidence: 0.90,
+                };
+                let _ = tracker.update(&[seed_box]);
+
+                let (det_roi, primary_roi) = engine.detect_with_adaptive_roi(frame.as_raw(), *w, *h, Some(&mut tracker)).unwrap();
+                let conf_roi = primary_roi.map(|b| b.confidence).unwrap_or(0.0);
+                if det_roi && conf_roi >= 0.70 {
+                    roi_zoom_detected += 1;
+                }
+            }
+        }
+    }
+
+    assert!(roi_zoom_detected > full_frame_detected, "Adaptive RoI Zoom must demonstrably outperform full-frame downscale on real camera resolutions");
+}

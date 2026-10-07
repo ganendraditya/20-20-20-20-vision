@@ -1,11 +1,28 @@
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+static SILENT_MODE: AtomicBool = AtomicBool::new(false);
 
 pub struct Notifier;
 
 impl Notifier {
+    /// Toggle silent mode (used during testing to prevent intrusive OS notifications)
+    pub fn set_silent_mode(silent: bool) {
+        SILENT_MODE.store(silent, Ordering::Relaxed);
+    }
+
+    /// Check if silent mode is enabled
+    pub fn is_silent() -> bool {
+        SILENT_MODE.load(Ordering::Relaxed)
+    }
+
     /// Send non-blocking native desktop notification
     pub fn send(title: &str, message: &str) {
+        if Self::is_silent() {
+            return;
+        }
+
         let title_owned = title.to_string();
         let message_owned = message.to_string();
 
@@ -73,8 +90,8 @@ impl Notifier {
 
     pub fn notify_break_time() {
         Self::send(
-            "20-20-20-20 Break Time",
-            "20 minutes of screen presence reached. Look at an object 20 feet (6m) away for 20 seconds and blink 20 times.",
+            "20-20-20 Break Time",
+            "20 minutes of screen presence reached. Look at an object at least 20 feet (6 meters) away for 20 seconds.",
         );
     }
 }

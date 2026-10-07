@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::time::Instant;
-use ort::session::Session;
 use vision420_lib::vision::FaceDetectorEngine;
 
 #[test]

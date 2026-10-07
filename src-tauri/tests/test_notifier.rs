@@ -22,6 +22,7 @@ fn test_wav_audio_synthesis_valid_header() {
 
 #[test]
 fn test_audio_chimes_can_be_invoked_safely() {
+    AudioPlayer::set_silent_mode(true);
     // Should trigger non-blocking threads without panic
     AudioPlayer::play_stare_warning();
     AudioPlayer::play_break_chime();
@@ -29,6 +30,7 @@ fn test_audio_chimes_can_be_invoked_safely() {
 
 #[test]
 fn test_native_notifications_can_be_invoked_safely() {
+    Notifier::set_silent_mode(true);
     // Should spawn asynchronous OS notification task without error or blocking
     Notifier::notify_stare_warning();
     Notifier::notify_break_time();

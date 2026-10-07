@@ -67,6 +67,7 @@ fn benchmark_ultraface_distance_and_latency() {
     let mut tier2_baseline_passed = 0;
     let mut tier3_baseline_passed = 0;
     let mut tier3_adaptive_passed = 0;
+    let mut tier3_roi_passed = 0;
 
     let cases_per_tier = base_images.len() * perturbations.len(); // 36 per tier = 108 total
 
@@ -177,15 +178,24 @@ fn benchmark_ultraface_distance_and_latency() {
                 }
 
                 // Run 2: Active Session Tracker with Adaptive Far-Field Hysteresis (Issue #55)
+                // Run 3: Active Session Tracker with Adaptive RoI Zoom (Issue #63)
                 if tier_idx == 2 {
-                    let mut tracker = vision420_lib::vision::FaceTracker::default();
+                    let mut tracker_hysteresis = vision420_lib::vision::FaceTracker::default();
                     let pre_seed = engine.preprocess(img.as_raw(), orig_w as usize, orig_h as usize);
-                    let _ = engine.detect_faces_and_track(pre_seed, Some(&mut tracker));
+                    let _ = engine.detect_faces_and_track(pre_seed, Some(&mut tracker_hysteresis));
 
-                    let (detected_adaptive, _, dominant_adaptive) = engine.detect_faces_and_track(pre, Some(&mut tracker)).unwrap();
+                    let (detected_adaptive, _, dominant_adaptive) = engine.detect_faces_and_track(pre, Some(&mut tracker_hysteresis)).unwrap();
                     let passed_adaptive = detected_adaptive && dominant_adaptive.is_some();
                     if passed_adaptive {
                         tier3_adaptive_passed += 1;
+                    }
+
+                    let mut tracker_roi = vision420_lib::vision::FaceTracker::default();
+                    let _ = engine.detect_with_adaptive_roi(img.as_raw(), orig_w as usize, orig_h as usize, Some(&mut tracker_roi));
+
+                    let (det_roi, dominant_roi) = engine.detect_with_adaptive_roi(canvas.as_raw(), orig_w as usize, orig_h as usize, Some(&mut tracker_roi)).unwrap();
+                    if det_roi && dominant_roi.is_some() {
+                        tier3_roi_passed += 1;
                     }
                 }
             }
@@ -200,6 +210,7 @@ fn benchmark_ultraface_distance_and_latency() {
     println!(" Tier 2 (Standard / 50-80cm): {}/{} ({:.1}%)", tier2_baseline_passed, cases_per_tier, (tier2_baseline_passed as f32 / cases_per_tier as f32) * 100.0);
     println!(" Tier 3 (Far / 80-120cm)    : {}/{} ({:.1}%) [Stateless Baseline @ 0.70 Threshold]", tier3_baseline_passed, cases_per_tier, (tier3_baseline_passed as f32 / cases_per_tier as f32) * 100.0);
     println!(" Tier 3 (Far / 80-120cm)    : {}/{} ({:.1}%) [Active Adaptive Lock @ 0.45 Hysteresis]", tier3_adaptive_passed, cases_per_tier, (tier3_adaptive_passed as f32 / cases_per_tier as f32) * 100.0);
+    println!(" Tier 3 (Far / 80-120cm)    : {}/{} ({:.1}%) [Active Adaptive RoI Zoom (Issue #63)]", tier3_roi_passed, cases_per_tier, (tier3_roi_passed as f32 / cases_per_tier as f32) * 100.0);
     println!("==========================================================================================");
 
     assert_eq!(tier1_baseline_passed, cases_per_tier, "Tier 1 Close distance MUST have 100% recall across all 12 perturbations");
