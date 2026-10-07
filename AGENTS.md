@@ -1,6 +1,6 @@
 # 420vision: Engineering Laws, Design Architecture & Anti-Slop Principles
 
-> Unified engineering discipline synthesized from **Prateek's 20 Engineering Laws**, **Core System Architecture Principles** (derived from `subtitle-translator`, `not-notebooklm`, and `koma`), and **Karpathy's Execution Guidelines**, specifically tailored for **420vision** (Local Edge Computer Vision, Native Rust/Tauri Daemon, Real-Time Hardware Processing).
+> Unified engineering discipline synthesized from **Prateek's 20 Engineering Laws**, **Core System Architecture Principles** (derived from `subtitle-translator`, `not-notebooklm`, and `koma`), and **Rigorous Engineering Execution Guidelines**, specifically tailored for **420vision** (Local Edge Computer Vision, Native Rust/Tauri Daemon, Real-Time Hardware Processing).
 
 ---
 
@@ -58,7 +58,7 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ---
 
-## Part 2: Engineering Execution Guidelines (Karpathy)
+## Part 2: Engineering Execution Guidelines
 
 ### 1. Think Before Coding
 - **State assumptions explicitly.** If uncertain, ask rather than guess.
