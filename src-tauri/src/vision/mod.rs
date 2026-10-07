@@ -186,6 +186,15 @@ pub struct FaceDetectorEngine {
     session: Session,
 }
 
+/// Confidence threshold for un-tracked initial detection (prevents phantom triggers)
+pub const CONF_THRESHOLD_UNTRACKED: f32 = 0.70;
+
+/// Relaxed confidence threshold for active tracked sessions (supports far-field & RoI recall)
+pub const CONF_THRESHOLD_TRACKED: f32 = 0.45;
+
+/// Normalized bounding box area threshold below which Adaptive RoI Zoom is triggered (Issue #63)
+pub const FAR_FIELD_AREA_THRESHOLD: f32 = 0.015;
+
 impl FaceDetectorEngine {
     /// Initialize the ONNX UltraFace detector session
     pub fn new<P: AsRef<Path>>(model_path: P) -> Result<Self, String> {
@@ -277,8 +286,6 @@ impl FaceDetectorEngine {
         height: usize,
         mut tracker: Option<&mut FaceTracker>,
     ) -> Result<(bool, Option<FaceBoundingBox>), String> {
-        const FAR_FIELD_AREA_THRESHOLD: f32 = 0.015;
-
         // Check if tracker has a locked face that is small (far-field / leaning back)
         let far_field_lock = tracker.as_ref().and_then(|t| t.current_lock()).filter(|b| b.area() < FAR_FIELD_AREA_THRESHOLD);
 
@@ -303,7 +310,9 @@ impl FaceDetectorEngine {
 
             if rw > 10 && rh > 10 {
                 let roi_tensor = self.preprocess_crop(rgb_data, width, height, x0, y0, rw, rh);
-                let (det_roi, candidates_roi, _) = self.detect_faces_and_track(roi_tensor, None)?;
+                // Note: RoI inference uses relaxed tracked threshold CONF_THRESHOLD_TRACKED (0.45)
+                // because an active user session lock was already confirmed
+                let (det_roi, candidates_roi, _) = self.detect_faces_and_track_with_threshold(roi_tensor, CONF_THRESHOLD_TRACKED, None)?;
 
                 if det_roi && !candidates_roi.is_empty() {
                     let roi_norm_x = x0 as f32 / width as f32;
@@ -313,29 +322,42 @@ impl FaceDetectorEngine {
 
                     let remapped_candidates: Vec<FaceBoundingBox> = candidates_roi
                         .into_iter()
-                        .map(|b| FaceBoundingBox {
-                            xmin: (roi_norm_x + b.xmin * roi_norm_w).clamp(0.0, 1.0),
-                            ymin: (roi_norm_y + b.ymin * roi_norm_h).clamp(0.0, 1.0),
-                            xmax: (roi_norm_x + b.xmax * roi_norm_w).clamp(0.0, 1.0),
-                            ymax: (roi_norm_y + b.ymax * roi_norm_h).clamp(0.0, 1.0),
-                            confidence: b.confidence,
+                        .map(|b| {
+                            let xmin = (roi_norm_x + b.xmin * roi_norm_w).clamp(0.0, 1.0);
+                            let xmax = (roi_norm_x + b.xmax * roi_norm_w).clamp(0.0, 1.0);
+                            let ymin = (roi_norm_y + b.ymin * roi_norm_h).clamp(0.0, 1.0);
+                            let ymax = (roi_norm_y + b.ymax * roi_norm_h).clamp(0.0, 1.0);
+                            FaceBoundingBox {
+                                xmin: xmin.min(xmax),
+                                xmax: xmin.max(xmax),
+                                ymin: ymin.min(ymax),
+                                ymax: ymin.max(ymax),
+                                confidence: b.confidence,
+                            }
                         })
+                        .filter(|b| (b.xmax - b.xmin) > 1e-4 && (b.ymax - b.ymin) > 1e-4)
                         .collect();
 
-                    let primary = if let Some(tr) = tracker.as_deref_mut() {
-                        tr.update(&remapped_candidates)
-                    } else {
-                        remapped_candidates.into_iter().max_by(|a, b| a.area().total_cmp(&b.area()))
-                    };
+                    if !remapped_candidates.is_empty() {
+                        let primary = if let Some(tr) = tracker.as_deref_mut() {
+                            tr.update(&remapped_candidates)
+                        } else {
+                            remapped_candidates.into_iter().max_by(|a, b| a.area().total_cmp(&b.area()))
+                        };
 
-                    if let Some(target) = primary {
-                        return Ok((true, Some(target)));
+                        if let Some(target) = primary {
+                            return Ok((true, Some(target)));
+                        } else {
+                            // RoI candidates were evaluated by tracker and did not match
+                            return Ok((false, None));
+                        }
                     }
                 }
             }
         }
 
-        // Fallback or full-frame execution
+        // Fallback or full-frame execution:
+        // Only reached if RoI was empty (user moved out of RoI window) or during initial un-tracked search
         let full_tensor = self.preprocess(rgb_data, width, height);
         let (has_face, _, primary_face) = self.detect_faces_and_track(full_tensor, tracker)?;
         Ok((has_face, primary_face))
@@ -350,6 +372,18 @@ impl FaceDetectorEngine {
     pub fn detect_faces_and_track(
         &mut self,
         input_tensor: Array4<f32>,
+        tracker: Option<&mut FaceTracker>,
+    ) -> Result<(bool, Vec<FaceBoundingBox>, Option<FaceBoundingBox>), String> {
+        let is_tracked = tracker.as_ref().map(|t| t.current_lock().is_some()).unwrap_or(false);
+        let min_conf = if is_tracked { CONF_THRESHOLD_TRACKED } else { CONF_THRESHOLD_UNTRACKED };
+        self.detect_faces_and_track_with_threshold(input_tensor, min_conf, tracker)
+    }
+
+    /// Internal inference executor with configurable confidence threshold
+    pub fn detect_faces_and_track_with_threshold(
+        &mut self,
+        input_tensor: Array4<f32>,
+        min_conf: f32,
         tracker: Option<&mut FaceTracker>,
     ) -> Result<(bool, Vec<FaceBoundingBox>, Option<FaceBoundingBox>), String> {
         let tensor_value = ort::value::Tensor::from_array(input_tensor)
@@ -367,15 +401,6 @@ impl FaceDetectorEngine {
         let (_b_shape, boxes) = outputs[1]
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
-
-        // Dynamic Far-Field Confidence Hysteresis:
-        // Initial detection requires >= 0.70 to reject noise/empty frames.
-        // Once active user is locked, spatial continuity allows candidates down to 0.45.
-        const CONF_THRESHOLD_UNTRACKED: f32 = 0.70;
-        const CONF_THRESHOLD_TRACKED: f32 = 0.45;
-
-        let is_tracked = tracker.as_ref().map(|t| t.current_lock().is_some()).unwrap_or(false);
-        let min_conf = if is_tracked { CONF_THRESHOLD_TRACKED } else { CONF_THRESHOLD_UNTRACKED };
 
         let mut candidates = Vec::new();
 
