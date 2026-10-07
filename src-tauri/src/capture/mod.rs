@@ -184,6 +184,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         };
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
+        let mut total_blinks: u32 = 0;
+        let mut current_bpm: f32 = 0.0;
+        let mut last_recorded_blinks: u32 = 0;
         let mut face_tracker = crate::vision::FaceTracker::default();
         let mut sleep_blocker = crate::notifier::SleepBlocker::new();
 
@@ -257,8 +260,6 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         let mut right_ear = 0.0f32;
                         let mut avg_ear = 0.0f32;
                         let mut is_blinking = false;
-                        let mut total_blinks = 0u32;
-                        let mut current_bpm = 0.0f32;
                         let mut landmarks_cache = None;
 
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
@@ -334,9 +335,20 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             // Run presence timer
                             let presence_state = presence_timer.update(is_face, now);
                             if presence_state.break_triggered {
-                                println!("[420vision::alert] 20-20-20-20 Break time triggered!");
+                                println!("[420vision::alert] 20-20-20 Break time triggered!");
                                 crate::notifier::Notifier::notify_break_time();
                                 crate::notifier::AudioPlayer::play_break_chime();
+                            }
+                            if presence_state.break_completed {
+                                println!("[420vision::alert] 20-20-20 Break completed!");
+                                crate::notifier::AudioPlayer::play_break_completed_chime();
+
+                                let delta_blinks = total_blinks.saturating_sub(last_recorded_blinks);
+                                last_recorded_blinks = total_blinks;
+
+                                if let Ok(storage) = crate::storage::AnalyticsDb::open() {
+                                    let _ = storage.record_break_today(current_bpm, delta_blinks, true, false, 1200.0);
+                                }
                             }
 
                             // Update global AppState metrics
@@ -345,8 +357,14 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                 let mut state = state_mutex.lock().unwrap();
                                 state.status.bpm = current_bpm;
                                 state.status.total_blinks_today = total_blinks;
-                                state.status.next_break_seconds = presence_state.next_break_seconds;
-                                if is_face {
+                                state.status.next_break_seconds = if presence_state.break_phase == crate::timer::BreakPhase::BreakPending {
+                                    presence_state.break_remaining_seconds
+                                } else {
+                                    presence_state.next_break_seconds
+                                };
+                                if presence_state.break_phase == crate::timer::BreakPhase::BreakPending {
+                                    state.status.status_text = format!("20s Break in Progress ({}s remaining)", presence_state.break_remaining_seconds);
+                                } else if is_face {
                                     state.status.status_text = "Monitoring Active".to_string();
                                 } else {
                                     state.status.status_text = "Away / Paused".to_string();

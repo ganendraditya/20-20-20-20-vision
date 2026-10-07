@@ -26,6 +26,7 @@ fn test_audio_chimes_can_be_invoked_safely() {
     // Should trigger non-blocking threads without panic
     AudioPlayer::play_stare_warning();
     AudioPlayer::play_break_chime();
+    AudioPlayer::play_break_completed_chime();
 }
 
 #[test]

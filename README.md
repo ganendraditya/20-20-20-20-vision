@@ -16,6 +16,17 @@
 
 The legitimate medical guideline from the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The fourth 20 is borrowed from normal human resting blink rate (~15–20 blinks/min per the [AAO](https://www.aao.org/eye-health/tips-prevention/computer-usage) and [Bentivoglio et al.](https://pubmed.ncbi.nlm.nih.gov/9399231/)), which drops by up to 60% while staring at screens.
 
+### How the System Validates the 20-Foot (6-Meter) Rule
+
+A common question is: *Can a standard laptop webcam physically verify that your eyes are focused 6 meters away?*
+
+Medical physics shows that a single 2D webcam cannot directly measure crystalline lens accommodation (the $0.0\text{ D}$ ciliary muscle relaxation needed for optical infinity). Attempting to guess lens focal depth from uncalibrated webcam pixels yields false conclusions. To respect user autonomy while avoiding pseudo-scientific claims, **420vision** acts as an ergonomic companion rather than an intrusive surveillance proctor:
+
+- **Physical Departure (Step Away):** If you stand up, stretch, or step away from your desk (`face not detected`), the break is instantly credited.
+- **Head & Gaze Orientation (Look Away):** If you turn your head toward a side window or across the room ($|\text{Yaw}| \ge 20^\circ$ or upward $|\text{Pitch}| \ge 15^\circ$), the system confirms you have looked away from the monitor.
+- **Frontal Distance Fixation (Look Past Monitor):** If your desk faces an open room or window behind your screen and you gaze forward into the distance with eyes open, the 20-second countdown runs to completion under the *Presumption of Compliance*.
+- **Eyelid Closure vs. Optical Distance:** Closing your eyes (*eyelid rest*) stops tear film evaporation and relieves dry eyes (handled separately by our real-time blink and stare monitor). However, true 20-20-20 optical relaxation requires active distant fixation with eyes open so the ciliary muscles disengage.
+
 ---
 
 ## References

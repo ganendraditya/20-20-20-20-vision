@@ -88,4 +88,14 @@ fn test_analytics_db_record_and_query_history() {
     assert_eq!(history[1].breaks_completed, 1);
     assert_eq!(history[1].breaks_skipped, 1);
     assert_eq!(history[1].screen_minutes, 40);
+
+    // Test record_break_today helper with incremental deltas
+    db.record_break_today(16.5, 200, true, false, 1200.0)
+        .expect("Record today event 1");
+    db.record_break_today(17.0, 150, true, false, 1200.0)
+        .expect("Record today event 2");
+    let history_today = db.get_compliance_history(7).expect("Query history with today");
+    let today_record = history_today.iter().find(|h| h.breaks_completed >= 2).expect("Must have 2 completed breaks");
+    assert_eq!(today_record.breaks_completed, 2);
+    assert_eq!(today_record.screen_minutes, 40); // 1200 + 1200 = 2400s = 40m
 }
