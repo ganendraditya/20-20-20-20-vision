@@ -96,6 +96,19 @@ impl AudioPlayer {
         });
     }
 
+    /// Play pleasant ascending 2-tone completion chime when 20-second break concludes
+    pub fn play_break_completed_chime() {
+        if Self::is_silent() {
+            return;
+        }
+
+        thread::spawn(|| {
+            // Bright C6 -> G6 ascending chime (1046.5 Hz, 1567.98 Hz)
+            let wav_bytes = Self::synthesize_chime_wav(&[1046.5, 1567.98], 0.35, 0.4);
+            Self::play_bytes(&wav_bytes);
+        });
+    }
+
     fn play_bytes(bytes: &[u8]) {
         #[cfg(target_os = "macos")]
         {

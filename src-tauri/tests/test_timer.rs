@@ -116,3 +116,64 @@ fn test_sleep_and_wake_lifecycle() {
     let state_short = timer_short.update(true, now_short);
     assert!(state_short.active_screen_seconds >= 200.0 && state_short.active_screen_seconds < 205.0);
 }
+
+#[test]
+fn test_break_window_countdown_and_auto_reset_lifecycle() {
+    use vision420_lib::timer::BreakPhase;
+
+    // 10s target, 300s away reset, 5s break window
+    let mut timer = PresenceTimer::with_break_window(10.0, 300.0, 5.0);
+    let mut now = Instant::now();
+
+    // 1. Accumulate screen time up to break target
+    timer.update(true, now);
+    now += Duration::from_secs(10);
+    let state_break_trigger = timer.update(true, now);
+
+    assert!(state_break_trigger.break_triggered, "Must trigger break at 10s target");
+    assert_eq!(state_break_trigger.break_phase, BreakPhase::BreakPending);
+    assert_eq!(state_break_trigger.break_remaining_seconds, 5);
+    assert_eq!(state_break_trigger.next_break_seconds, 0);
+
+    // 2. Mid-break tick (2 seconds into break)
+    now += Duration::from_secs(2);
+    let state_mid_break = timer.update(false, now); // user looks away / steps back
+    assert!(!state_mid_break.break_triggered);
+    assert!(!state_mid_break.break_completed);
+    assert_eq!(state_mid_break.break_phase, BreakPhase::BreakPending);
+    assert_eq!(state_mid_break.break_remaining_seconds, 3);
+
+    // 3. Break completes (3 more seconds -> 5s window reached)
+    now += Duration::from_secs(3);
+    let state_completed = timer.update(true, now);
+    assert!(state_completed.break_completed, "Must signal break completion");
+    assert_eq!(state_completed.break_phase, BreakPhase::Monitoring);
+    assert_eq!(state_completed.active_screen_seconds, 0.0, "Screen seconds must auto-reset to 0.0");
+    assert_eq!(state_completed.next_break_seconds, 10, "Next break countdown must reset to target");
+
+    // 4. Test snooze from break pending
+    now += Duration::from_secs(10);
+    let state_break2 = timer.update(true, now);
+    assert_eq!(state_break2.break_phase, BreakPhase::BreakPending);
+
+    // Snooze by 1 minute (rolls back active seconds to 10 - 60, clamped to 0)
+    timer.snooze(1.0);
+    assert_eq!(timer.phase(), BreakPhase::Monitoring);
+    let state_snoozed = timer.update(true, now);
+    assert_eq!(state_snoozed.break_phase, BreakPhase::Monitoring);
+
+    // 5. Test prolonged away absence (>= 300s) during pending break
+    let mut timer_away = PresenceTimer::with_break_window(10.0, 300.0, 5.0);
+    let mut now_away = Instant::now();
+    timer_away.update(true, now_away);
+    now_away += Duration::from_secs(10);
+    timer_away.update(true, now_away); // enters BreakPending
+
+    // User steps away during break for 350s
+    now_away += Duration::from_secs(1);
+    timer_away.update(false, now_away);
+    now_away += Duration::from_secs(350);
+    let state_long_away = timer_away.update(true, now_away);
+    assert_eq!(state_long_away.break_phase, BreakPhase::Monitoring);
+    assert_eq!(state_long_away.active_screen_seconds, 0.0);
+}

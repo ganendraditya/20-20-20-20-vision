@@ -69,13 +69,43 @@ impl AnalyticsDb {
              ON CONFLICT(date) DO UPDATE SET
                 avg_bpm = CASE 
                     WHEN (active_screen_seconds + ?6) > 0.0 THEN ((total_blinks + ?3) * 60.0) / (active_screen_seconds + ?6)
-                    ELSE avg_bpm
+                    ELSE ?2
                 END,
                 total_blinks = total_blinks + ?3,
                 breaks_completed = breaks_completed + ?4,
                 breaks_skipped = breaks_skipped + ?5,
                 active_screen_seconds = active_screen_seconds + ?6",
             params![date, bpm, blinks, comp_increment, skip_increment, screen_secs],
+        )?;
+
+        Ok(())
+    }
+
+    /// Record break event using local date automatically from SQLite
+    pub fn record_break_today(
+        &self,
+        bpm: f32,
+        blinks: u32,
+        completed: bool,
+        skipped: bool,
+        screen_secs: f32,
+    ) -> Result<()> {
+        let comp_increment = if completed { 1 } else { 0 };
+        let skip_increment = if skipped { 1 } else { 0 };
+
+        self.conn.execute(
+            "INSERT INTO daily_analytics (date, avg_bpm, total_blinks, breaks_completed, breaks_skipped, active_screen_seconds)
+             VALUES (date('now', 'localtime'), ?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(date) DO UPDATE SET
+                avg_bpm = CASE 
+                    WHEN (active_screen_seconds + ?5) > 0.0 THEN ((total_blinks + ?2) * 60.0) / (active_screen_seconds + ?5)
+                    ELSE ?1
+                END,
+                total_blinks = total_blinks + ?2,
+                breaks_completed = breaks_completed + ?3,
+                breaks_skipped = breaks_skipped + ?4,
+                active_screen_seconds = active_screen_seconds + ?5",
+            params![bpm, blinks, comp_increment, skip_increment, screen_secs],
         )?;
 
         Ok(())
