@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     name: Test & Build (${{ matrix.os }})
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -52,7 +54,7 @@ jobs:
 
       - name: Run Rust Test Suite
         shell: bash
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Build Tauri Binary
         shell: bash
