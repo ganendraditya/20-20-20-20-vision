@@ -22,9 +22,11 @@ pub struct PresenceTimer {
     break_target_seconds: f32,  // Default: 20 minutes = 1200.0s
     break_window_seconds: f32,  // Default: 20 seconds = 20.0s
     away_reset_seconds: f32,    // Default: 5 minutes = 300.0s
+    break_timeout_seconds: f32, // Default: 60 seconds of persistent screen staring before break is aborted
 
     active_screen_seconds: f32,
     break_elapsed_seconds: f32,
+    stare_during_break_seconds: f32,
     phase: BreakPhase,
     last_update_instant: Option<Instant>,
     away_start_instant: Option<Instant>,
@@ -44,8 +46,10 @@ impl PresenceTimer {
             break_target_seconds,
             break_window_seconds,
             away_reset_seconds,
+            break_timeout_seconds: 60.0,
             active_screen_seconds: 0.0,
             break_elapsed_seconds: 0.0,
+            stare_during_break_seconds: 0.0,
             phase: BreakPhase::Monitoring,
             last_update_instant: None,
             away_start_instant: None,
@@ -111,33 +115,57 @@ impl PresenceTimer {
                 }
             }
             BreakPhase::BreakPending => {
-                // 20-second optical distance break window in progress
-                self.break_elapsed_seconds += dt;
-
-                // Track away absence during break if user leaves desk completely
+                // Net Rest Accumulation with Freeze-on-Screen (Issue #73):
+                // `is_face_present` represents whether the user is actively gazing at the screen.
+                // When user looks away, gazes up, or steps away, `is_face_present` is false (genuine rest).
                 if !is_face_present {
+                    // User is genuinely resting: advance the break countdown
+                    self.break_elapsed_seconds += dt;
+                    // Reset continuous staring counter
+                    self.stare_during_break_seconds = 0.0;
+
+                    // Track away absence in case user leaves desk completely for >= 5 minutes
                     if self.away_start_instant.is_none() {
                         self.away_start_instant = Some(now);
                     }
-                } else if let Some(away_start) = self.away_start_instant.take() {
-                    let away_duration = now
-                        .checked_duration_since(away_start)
-                        .map(|d| d.as_secs_f32())
-                        .unwrap_or(0.0);
+                } else {
+                    // User is actively facing / staring at monitor:
+                    // FREEZE / PAUSE the 20-second countdown!
+                    self.stare_during_break_seconds += dt;
 
-                    if away_duration >= self.away_reset_seconds {
-                        // User left for >= 5 minutes during/around break: naturally rested
-                        self.active_screen_seconds = 0.0;
-                        self.break_elapsed_seconds = 0.0;
+                    // If user was away and returns, check if absence was >= 5 minutes (natural full reset)
+                    if let Some(away_start) = self.away_start_instant.take() {
+                        let away_duration = now
+                            .checked_duration_since(away_start)
+                            .map(|d| d.as_secs_f32())
+                            .unwrap_or(0.0);
+
+                        if away_duration >= self.away_reset_seconds {
+                            self.active_screen_seconds = 0.0;
+                            self.break_elapsed_seconds = 0.0;
+                            self.stare_during_break_seconds = 0.0;
+                            self.phase = BreakPhase::Monitoring;
+                        }
+                    }
+
+                    // Timeout Guard: If user ignores break and stares continuously at screen for > 60s,
+                    // abort the pending break (mark as skipped) and roll back active seconds by 5m (snooze)
+                    if self.phase == BreakPhase::BreakPending && self.stare_during_break_seconds >= self.break_timeout_seconds {
                         self.phase = BreakPhase::Monitoring;
+                        self.break_elapsed_seconds = 0.0;
+                        self.stare_during_break_seconds = 0.0;
+                        // Roll back by 5 minutes, or halfway if target interval is shorter than 10 minutes
+                        let snooze_secs = (self.break_target_seconds * 0.25).max(300.0).min(self.break_target_seconds);
+                        self.active_screen_seconds = (self.break_target_seconds - snooze_secs).max(0.0);
                     }
                 }
 
                 if self.phase == BreakPhase::BreakPending && self.break_elapsed_seconds >= self.break_window_seconds {
-                    // 20 seconds completed!
+                    // Clean 20 seconds of verified rest completed!
                     self.phase = BreakPhase::Monitoring;
                     self.active_screen_seconds = 0.0;
                     self.break_elapsed_seconds = 0.0;
+                    self.stare_during_break_seconds = 0.0;
                     complete_break = true;
                 }
             }
@@ -163,6 +191,7 @@ impl PresenceTimer {
     pub fn reset_break_timer(&mut self) {
         self.active_screen_seconds = 0.0;
         self.break_elapsed_seconds = 0.0;
+        self.stare_during_break_seconds = 0.0;
         self.phase = BreakPhase::Monitoring;
         self.away_start_instant = None;
     }
@@ -172,6 +201,7 @@ impl PresenceTimer {
         let rollback_secs = minutes * 60.0;
         self.active_screen_seconds = (self.break_target_seconds - rollback_secs).max(0.0);
         self.break_elapsed_seconds = 0.0;
+        self.stare_during_break_seconds = 0.0;
         self.phase = BreakPhase::Monitoring;
         self.away_start_instant = None;
     }

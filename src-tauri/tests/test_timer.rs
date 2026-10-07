@@ -143,15 +143,20 @@ fn test_break_window_countdown_and_auto_reset_lifecycle() {
     assert_eq!(state_mid_break.break_phase, BreakPhase::BreakPending);
     assert_eq!(state_mid_break.break_remaining_seconds, 3);
 
-    // 3. Break completes (3 more seconds -> 5s window reached)
+    // 3. Break completes (3 more seconds of resting -> 5s window reached)
     now += Duration::from_secs(3);
-    let state_completed = timer.update(true, now);
+    let state_completed = timer.update(false, now); // user finishes 5s break while resting
     assert!(state_completed.break_completed, "Must signal break completion");
     assert_eq!(state_completed.break_phase, BreakPhase::Monitoring);
     assert_eq!(state_completed.active_screen_seconds, 0.0, "Screen seconds must auto-reset to 0.0");
     assert_eq!(state_completed.next_break_seconds, 10, "Next break countdown must reset to target");
 
     // 4. Test snooze from break pending
+    // User returns and is present on first frame after break completion
+    let state_resume = timer.update(true, now);
+    assert_eq!(state_resume.break_phase, BreakPhase::Monitoring);
+
+    // Accumulate 10 seconds of active screen time to trigger break 2
     now += Duration::from_secs(10);
     let state_break2 = timer.update(true, now);
     assert_eq!(state_break2.break_phase, BreakPhase::BreakPending);

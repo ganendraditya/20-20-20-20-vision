@@ -16,16 +16,16 @@
 
 The legitimate medical guideline from the **American Optometric Association (AOA)** is strictly the **20-20-20 rule** (take a 20-second break every 20 minutes to look at something 20 feet away). The fourth 20 is borrowed from normal human resting blink rate (~15–20 blinks/min per the [AAO](https://www.aao.org/eye-health/tips-prevention/computer-usage) and [Bentivoglio et al.](https://pubmed.ncbi.nlm.nih.gov/9399231/)), which drops by up to 60% while staring at screens.
 
-### How the System Validates the 20-Foot (6-Meter) Rule
+### How the System Validates the 20-20-20 Rule
 
-A common question is: *Can a standard laptop webcam physically verify that your eyes are focused 6 meters away?*
+The system verifies optical distance breaks using deterministic physical cues rather than intrusive surveillance:
 
-Medical physics shows that a single 2D webcam cannot directly measure crystalline lens accommodation (the $0.0\text{ D}$ ciliary muscle relaxation needed for optical infinity). Attempting to guess lens focal depth from uncalibrated webcam pixels yields false conclusions. To respect user autonomy while avoiding pseudo-scientific claims, **420vision** acts as an ergonomic companion rather than an intrusive surveillance proctor:
-
-- **Physical Departure (Step Away):** If you stand up, stretch, or step away from your desk (`face not detected`), the break is instantly credited.
-- **Head & Gaze Orientation (Look Away):** If you turn your head toward a side window or across the room ($|\text{Yaw}| \ge 20^\circ$ or upward $|\text{Pitch}| \ge 15^\circ$), the system confirms you have looked away from the monitor.
-- **Frontal Distance Fixation (Look Past Monitor):** If your desk faces an open room or window behind your screen and you gaze forward into the distance with eyes open, the 20-second countdown runs to completion under the *Presumption of Compliance*.
-- **Eyelid Closure vs. Optical Distance:** Closing your eyes (*eyelid rest*) stops tear film evaporation and relieves dry eyes (handled separately by our real-time blink and stare monitor). However, true 20-20-20 optical relaxation requires active distant fixation with eyes open so the ciliary muscles disengage.
+- **Physical Departure (Step Away):** Standing up, stretching, or stepping away from your desk (`face not detected`) credits the break.
+- **Side Head Pose (Look Left/Right):** Turning your head toward a side window or across the room ($|\text{Yaw}| \ge 20^\circ$) advances the countdown.
+- **Upward Gaze (Look Up / Stretch):** Tilting your head upward ($\text{Pitch} \ge 15^\circ$) toward the ceiling or a high window advances the countdown.
+- **Freeze-on-Screen (Look at Monitor):** Looking directly at the screen ($|\text{Yaw}| < 20^\circ$ and $\text{Pitch} < 15^\circ$) freezes the countdown until you resume looking away (times out after 60s of continuous staring).
+- **Downward Gaze Rejection:** Glancing down at a keyboard or phone does not count as looking 6 meters away.
+- **Eyelid Closure vs. Optical Distance:** Eyelid rest relieves dry eye, while true 20-20-20 optical muscle disengagement requires distant fixation with eyes open.
 
 ---
 
@@ -34,6 +34,7 @@ Medical physics shows that a single 2D webcam cannot directly measure crystallin
 1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
 2. **American Academy of Ophthalmology (AAO):** [Blink Rate Reduction in Digital Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
 3. **Bentivoglio et al. (PubMed):** [Analysis of Blink Rate Patterns in Normal Subjects](https://pubmed.ncbi.nlm.nih.gov/9399231/)
+4. **Soukupová & Čech (CVWW 2016):** [Real-Time Eye Blink Detection using Facial Landmarks](https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf)
 
 ---
 
@@ -98,7 +99,7 @@ irm https://raw.githubusercontent.com/ganendraditya/20-20-20-20-vision/main/unin
 
 - **Engine:** Pure Rust native daemon compiled with zero garbage collector.
 - **Vision Inference:** Two-stage edge pipeline combining UltraFace RFB-320 gatekeeper and MediaPipe FaceMesh (468 3D landmarks) running on ONNX Runtime (`ort`).
-- **Mathematical EAR:** Soukupová & Čech (2016) formula with Asymmetric Impulse EMA filter to eliminate glasses glare jitter and capture fast blinks.
+- **Mathematical EAR:** [Soukupová & Čech (2016)](https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf) canonical eye aspect ratio formulation with Asymmetric Impulse EMA filter to eliminate glasses glare jitter and capture fast blinks.
 - **Multi-Subject Stability:** Spatial inertia and hysteresis tracking to prevent flickering in crowded rooms.
 - **Strict Always-Yield Etiquette:** Never monopolizes the webcam; instantly yields when Zoom, Meet, Teams, or FaceTime requests the camera.
 - **Minimalist Tray Popover UI:** Native OS webview with 4 tabs:

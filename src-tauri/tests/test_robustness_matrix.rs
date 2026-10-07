@@ -82,7 +82,8 @@ fn generate_heterogeneous_landmarks(
     lm[380] = Landmark3D { x: x380, y: y380, z: 0.0 };
 
     // Nose tip (index 1) located at midpoint between eyes + yaw_offset
-    let (xn, yn) = transform(yaw_offset, -5.0);
+    // In canonical face geometry, nose tip is ~0.45 interocular units below eyes (ry = +18.0)
+    let (xn, yn) = transform(yaw_offset, 18.0);
     lm[1] = Landmark3D { x: xn, y: yn, z: 0.0 };
 
     lm

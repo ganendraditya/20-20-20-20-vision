@@ -26,7 +26,8 @@ fn create_synthetic_landmarks(left_height: f32, right_height: f32, eye_width: f3
     landmarks[380] = Landmark3D { x: eye_width * 0.7, y: 0.0, z: 0.0 };
 
     // Nose tip (index 1) centered at midpoint between corners (33 and 263) for frontal head pose
-    landmarks[1] = Landmark3D { x: eye_width * 0.5, y: -eye_width * 0.5, z: 0.0 };
+    // In canonical face geometry, nose tip is ~0.45 interocular units below the eye line
+    landmarks[1] = Landmark3D { x: eye_width * 0.5, y: eye_width * 0.45, z: 0.0 };
 
     landmarks
 }
