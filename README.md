@@ -10,7 +10,7 @@
 ## The 20-20-20-20 Rule
 
 - **20 Minutes:** Screen time interval before eye fatigue sets in.
-- **20 Feet (6m):** Optical infinity distance that allows the eye's ciliary focusing muscles to fully relax.
+- **20 Feet (6 meters):** Optical infinity distance that allows the eye's ciliary focusing muscles to fully relax.
 - **20 Seconds:** Minimum time required for the muscles to disengage.
 - **20 Blinks:** Conscious blinks target to restore the tear film.
 

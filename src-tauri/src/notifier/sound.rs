@@ -1,8 +1,21 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+static SILENT_MODE: AtomicBool = AtomicBool::new(false);
 
 pub struct AudioPlayer;
 
 impl AudioPlayer {
+    /// Toggle silent mode (used during testing to prevent audio output)
+    pub fn set_silent_mode(silent: bool) {
+        SILENT_MODE.store(silent, Ordering::Relaxed);
+    }
+
+    /// Check if silent mode is enabled
+    pub fn is_silent() -> bool {
+        SILENT_MODE.load(Ordering::Relaxed)
+    }
+
     /// Synthesize an in-memory PCM 16-bit Mono WAV byte buffer with exponential decay
     pub fn synthesize_chime_wav(freqs: &[f32], duration_secs: f32, volume: f32) -> Vec<u8> {
         let sample_rate = 44100u32;
@@ -59,6 +72,10 @@ impl AudioPlayer {
 
     /// Play soft double-tone chime in background thread asynchronously
     pub fn play_stare_warning() {
+        if Self::is_silent() {
+            return;
+        }
+
         thread::spawn(|| {
             // Soft A5 -> D6 chime (880 Hz, 1174 Hz)
             let wav_bytes = Self::synthesize_chime_wav(&[880.0, 1174.66], 0.25, 0.4);
@@ -68,6 +85,10 @@ impl AudioPlayer {
 
     /// Play calming 4-chord progression chime for 20-20-20 break
     pub fn play_break_chime() {
+        if Self::is_silent() {
+            return;
+        }
+
         thread::spawn(|| {
             // F#m7 harmony: F#4 (370), A4 (440), C#5 (554), E5 (659)
             let wav_bytes = Self::synthesize_chime_wav(&[369.99, 440.0, 554.37, 659.25], 1.2, 0.5);

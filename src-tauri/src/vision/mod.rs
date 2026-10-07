@@ -195,6 +195,14 @@ pub const CONF_THRESHOLD_TRACKED: f32 = 0.45;
 /// Normalized bounding box area threshold below which Adaptive RoI Zoom is triggered (Issue #63)
 pub const FAR_FIELD_AREA_THRESHOLD: f32 = 0.015;
 
+/// Aspect-ratio and padding expansion parameters for Adaptive RoI Zoom (Issue #63)
+pub const ROI_EXPANSION_FACTOR: f32 = 4.5;
+pub const ROI_MIN_WIDTH_RATIO: f32 = 0.35;
+pub const ROI_MIN_WIDTH_PX: f32 = 32.0;
+pub const ROI_ASPECT_RATIO_HEIGHT_FACTOR: f32 = 0.75; // 3:4 height multiplier
+pub const ROI_ASPECT_RATIO_WIDTH_FACTOR: f32 = 4.0 / 3.0; // 4:3 width multiplier
+pub const ROI_MIN_DIMENSION_PX: usize = 10;
+
 impl FaceDetectorEngine {
     /// Initialize the ONNX UltraFace detector session
     pub fn new<P: AsRef<Path>>(model_path: P) -> Result<Self, String> {
@@ -294,13 +302,13 @@ impl FaceDetectorEngine {
             let cy = (tracked.ymin + tracked.ymax) * 0.5 * height as f32;
             let face_w_px = (tracked.xmax - tracked.xmin).max(0.01) * width as f32;
 
-            // Expand by ~4.5x to preserve anatomical context
-            let min_w = (width as f32 * 0.35).min(width as f32).max(32.0);
-            let mut roi_w_px = (face_w_px * 4.5).clamp(min_w, width as f32);
-            let mut roi_h_px = (roi_w_px * 0.75).round();
+            // Expand around small face to preserve anatomical context
+            let min_w = (width as f32 * ROI_MIN_WIDTH_RATIO).min(width as f32).max(ROI_MIN_WIDTH_PX);
+            let mut roi_w_px = (face_w_px * ROI_EXPANSION_FACTOR).clamp(min_w, width as f32);
+            let mut roi_h_px = (roi_w_px * ROI_ASPECT_RATIO_HEIGHT_FACTOR).round();
             if roi_h_px > height as f32 {
                 roi_h_px = height as f32;
-                roi_w_px = (roi_h_px * (4.0 / 3.0)).round().min(width as f32);
+                roi_w_px = (roi_h_px * ROI_ASPECT_RATIO_WIDTH_FACTOR).round().min(width as f32);
             }
 
             let x0 = (cx - roi_w_px * 0.5).clamp(0.0, (width as f32 - roi_w_px).max(0.0)) as usize;
@@ -308,9 +316,9 @@ impl FaceDetectorEngine {
             let rw = (roi_w_px as usize).min(width.saturating_sub(x0));
             let rh = (roi_h_px as usize).min(height.saturating_sub(y0));
 
-            if rw > 10 && rh > 10 {
+            if rw > ROI_MIN_DIMENSION_PX && rh > ROI_MIN_DIMENSION_PX {
                 let roi_tensor = self.preprocess_crop(rgb_data, width, height, x0, y0, rw, rh);
-                // Note: RoI inference uses relaxed tracked threshold CONF_THRESHOLD_TRACKED (0.45)
+                // Note: RoI inference uses relaxed tracked threshold CONF_THRESHOLD_TRACKED
                 // because an active user session lock was already confirmed
                 let (det_roi, candidates_roi, _) = self.detect_faces_and_track_with_threshold(roi_tensor, CONF_THRESHOLD_TRACKED, None)?;
 
@@ -380,7 +388,7 @@ impl FaceDetectorEngine {
     }
 
     /// Internal inference executor with configurable confidence threshold
-    pub fn detect_faces_and_track_with_threshold(
+    pub(crate) fn detect_faces_and_track_with_threshold(
         &mut self,
         input_tensor: Array4<f32>,
         min_conf: f32,
