@@ -54,7 +54,7 @@ jobs:
 
       - name: Run Rust Test Suite
         shell: bash
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build Tauri Binary
         shell: bash
