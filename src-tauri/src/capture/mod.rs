@@ -289,8 +289,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                     let preprocessed = engine.preprocess(raw_bytes, w, h, dominant_bbox.as_ref());
                                     if let Ok(landmarks) = engine.infer(preprocessed) {
-                                        // Evaluate Head Pose Yaw Gate:
-                                        // If user is severely turned away (yaw_ratio > 0.35), consider them "Away / Not looking"
+                                        // Evaluate 3D Head Pose Gaze Gate (Issue #48 & #73):
+                                        // User is considered facing screen ONLY if not turned away (yaw <= 0.35)
+                                        // and not gazing far upward (pitch < 0.15).
                                         let is_facing = crate::detector::EarCalculator::estimate_head_pose(&landmarks)
                                             .map(|pose| pose.is_facing_camera)
                                             .unwrap_or(true);

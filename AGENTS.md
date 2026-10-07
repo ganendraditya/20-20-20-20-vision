@@ -1,6 +1,6 @@
 # 420vision: Engineering Laws, Design Architecture & Anti-Slop Principles
 
-> Unified engineering discipline synthesized from **Prateek's 20 Engineering Laws**, **Core System Architecture Principles** (derived from `subtitle-translator`, `not-notebooklm`, and `koma`), and **Rigorous Engineering Execution Guidelines**, specifically tailored for **420vision** (Local Edge Computer Vision, Native Rust/Tauri Daemon, Real-Time Hardware Processing).
+> Unified engineering discipline synthesized from **Prateek's 20 Engineering Laws**, **Core System Architecture Principles**, and **Rigorous Engineering Execution Guidelines**, specifically tailored for **420vision** (Local Edge Computer Vision, Native Rust/Tauri Daemon, Real-Time Hardware Processing).
 
 ---
 
@@ -88,7 +88,7 @@ Modules must be designed to stand independently without hidden side-effects:
 
 ## Part 3: Agent Guardrails & Operating Rules (Anti-Sycophancy & Zero-Assumption)
 
-Derived from `koma` and `not-notebooklm`:
+Core discipline governing automated agent interactions:
 
 ### 1. Zero Hallucination & Anti-Sycophancy in Code Reviews
 - **Never claim a technical bug/error based on assumption or memory alone:** Verify before reporting. Always verify against concrete code, tests, or official documentation.

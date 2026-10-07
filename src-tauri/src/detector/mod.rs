@@ -22,7 +22,7 @@ pub const RIGHT_EYE_V1: (usize, usize) = (386, 374);
 pub const RIGHT_EYE_V2: (usize, usize) = (387, 373);
 pub const RIGHT_EYE_V3: (usize, usize) = (385, 380);
 
-// Landmark indices for Head Pose Yaw calculation
+// Landmark indices for Head Pose Yaw & Pitch calculation
 pub const NOSE_TIP: usize = 1;
 pub const LEFT_EYE_OUTER_CORNER: usize = 33;
 pub const RIGHT_EYE_OUTER_CORNER: usize = 263;
@@ -30,10 +30,16 @@ pub const RIGHT_EYE_OUTER_CORNER: usize = 263;
 /// Maximum permissible nasal-interocular yaw asymmetry ratio for frontal gaze (< ~35 degree turn)
 pub const MAX_YAW_RATIO_FRONTAL: f32 = 0.35;
 
+/// Threshold for upward pitch gaze ratio (nose tip elevated toward/above eye plane)
+/// When looking upward (> ~15 degrees), pitch_ratio >= 0.15 indicates genuine upward distance rest.
+pub const MIN_PITCH_RATIO_UPWARD_REST: f32 = 0.15;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeadPoseMetrics {
     pub is_facing_camera: bool,
+    pub is_resting_gaze: bool,
     pub yaw_ratio: f32,
+    pub pitch_ratio: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -105,12 +111,13 @@ impl EarCalculator {
         (dist_v1 + dist_v2 + dist_v3) / (3.0 * dist_h)
     }
 
-    /// Evaluate head pose yaw angle via nasal-interocular symmetry.
-    /// Calculates the horizontal offset between the nose tip (index 1) and the midpoint
-    /// of outer eye corners (indices 33 and 263) normalized by interocular width.
+    /// Evaluate head pose 3D yaw and pitch angles via nasal-interocular geometry.
+    /// Calculates:
+    /// 1. Yaw ratio: horizontal offset between nose tip (index 1) and eye midpoint normalized by interocular width.
+    /// 2. Pitch ratio: vertical elevation of nose tip relative to eye level normalized by interocular width.
     ///
-    /// - Frontal gaze looking at screen: yaw_ratio <= 0.25 (typical natural posture)
-    /// - Severe side profile / looking away: yaw_ratio > 0.35
+    /// - Frontal gaze looking at screen: yaw_ratio <= 0.35 AND pitch_ratio < 0.15
+    /// - Resting gaze (Looking away or upward): yaw_ratio > 0.35 OR pitch_ratio >= 0.15 (gazing at high window/ceiling)
     pub fn estimate_head_pose(landmarks: &[Landmark3D]) -> Option<HeadPoseMetrics> {
         let (Some(p_left), Some(p_right), Some(p_nose)) = (
             landmarks.get(LEFT_EYE_OUTER_CORNER),
@@ -126,29 +133,49 @@ impl EarCalculator {
             return None;
         }
 
-        // Project nose offset perpendicular to the interocular vector:
         // Eye midpoint M = (p_left + p_right) / 2
         let mx = (p_left.x + p_right.x) / 2.0;
         let my = (p_left.y + p_right.y) / 2.0;
 
-        // Vector along the eye line: v = (p_right - p_left) / width
+        // Normalized unit vector along the eye line: v = (p_right - p_left) / width
         let vx = (p_right.x - p_left.x) / interocular_width;
         let vy = (p_right.y - p_left.y) / interocular_width;
 
-        // Offset of nose from midpoint: d = p_nose - M
+        // Perpendicular normal vector pointing downwards across face: u = (-vy, vx)
+        let ux = -vy;
+        let uy = vx;
+
+        // Offset vector of nose from eye midpoint: d = p_nose - M
         let dx = p_nose.x - mx;
         let dy = p_nose.y - my;
 
-        // Yaw component is projection of d along the eye axis:
+        // Yaw component is projection of d along the eye axis (horizontal relative to head):
         let nose_offset_along_eye_axis = (dx * vx + dy * vy).abs();
         let yaw_ratio = nose_offset_along_eye_axis / interocular_width;
 
-        // Threshold: rejects > 35-degree turns and profile silhouettes
-        let is_facing_camera = yaw_ratio <= MAX_YAW_RATIO_FRONTAL;
+        // Pitch component is projection of d along the perpendicular face axis:
+        // In image coordinates, y increases downward.
+        // In natural upright frontal posture, nose tip is below eye midpoint (d . u > 0, typical ~0.35-0.55).
+        // When user tilts head upward, the nose tip moves closer to or above the eye line (d . u decreases).
+        let normal_offset = dx * ux + dy * uy;
+        // Natural neutral resting offset is approximately 0.45 interocular units below eyes.
+        // An elevation delta > 0.15 indicates significant upward pitch (gazing at ceiling / distant high point).
+        let baseline_downward_offset = 0.45 * interocular_width;
+        let upward_elevation = (baseline_downward_offset - normal_offset)
+            .clamp(-interocular_width, interocular_width);
+        let pitch_ratio = upward_elevation / interocular_width;
+
+        let is_turned_away = yaw_ratio > MAX_YAW_RATIO_FRONTAL;
+        let is_gazing_upward = pitch_ratio >= MIN_PITCH_RATIO_UPWARD_REST;
+
+        // Subject is facing camera if not turned away and not looking far up
+        let is_facing_camera = !is_turned_away && !is_gazing_upward;
 
         Some(HeadPoseMetrics {
             is_facing_camera,
+            is_resting_gaze: !is_facing_camera,
             yaw_ratio,
+            pitch_ratio,
         })
     }
 

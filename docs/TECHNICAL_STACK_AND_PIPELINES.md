@@ -252,15 +252,20 @@ $$\text{Yaw Ratio} = \frac{|X_{\text{nose}} - \text{Midpoint}|}{\text{Width}}$$
   * If user leaves the desk (`is_face == false`): countdown pauses immediately.
   * Quick returns ($< 300\text{s}$ / $5\text{ min}$) resume the session timer where it stopped.
   * Sustained absence ($\ge 300\text{s}$): automatically resets session elapsed time to $0$ (assumes user took a physical break).
-* **20-Second Break Verification State Machine (Issue #71):**
+* **20-Second Break Verification State Machine (Issue #71 & #73):**
   * Upon reaching $1200\text{ s}$ ($20\text{ min}$), `PresenceTimer` transitions into `BreakPhase::BreakPending` with an active $20\text{ s}$ countdown (`break_remaining_seconds`).
   * Triggers initial break prompt notification and chime (`play_break_chime`).
-  * Evaluates active $20\text{ s}$ break compliance via multi-tier ergonomic heuristics:
-    1. *Physical Departure:* Face leaves frame (`!is_present`) $\rightarrow$ immediate break progress.
-    2. *Head Orientation:* Head yaw exceeds $|20^\circ|$ or upward pitch exceeds $|15^\circ|$ (`is_facing_camera == false`) $\rightarrow$ verified looking away from screen.
-    3. *Frontal Distance Gaze:* Sitting facing forward into the room/window with eyes open $\rightarrow$ 20s window completes naturally under *Presumption of Compliance*.
-    4. *Decoupling:* Eyelid closure is preserved exclusively for dry eye / tear film recovery (stare warning & blinks), while 20-20-20 strictly targets optical infinity accommodation.
-  * Upon completing $20\text{ s}$, fires `play_break_completed_chime`, resets `active_screen_seconds = 0.0`, records `breaks_completed` in `daily_analytics`, and transitions back to `BreakPhase::Monitoring`.
+  * **Net Rest Accumulation with Freeze-on-Screen (Issue #73):**
+    - The 20-second countdown advances **only** when the user is genuinely resting (turned away, gazing upward, or out of frame).
+    - When the user stares at the monitor/code (`is_face_present == true`), the countdown **instantly freezes/pauses**.
+    - If the user ignores the break and continues staring at the screen for $> 60\text{ s}$, the break times out and rolls back 5 minutes (snooze).
+  * **3D Head Pose Gaze Gate (Issue #73):**
+    - Evaluates dual-axis 3D orientation:
+      1. *Horizontal Yaw:* $|X| \ge 20^\circ$ (`yaw_ratio > 0.35`, turned left or right toward room/window).
+      2. *Vertical Pitch:* Upward tilt $\ge 15^\circ$ (`pitch_ratio \ge 0.15`, gazing at ceiling or high window).
+      3. *Downward Gaze Rejection:* Looking downward at keyboard/desk/phone is explicitly rejected from resting credit.
+    - User qualifies as resting if turned away, looking upward, or completely absent from frame.
+  * Upon completing $20\text{ s}$ of verified net rest, fires `play_break_completed_chime`, resets `active_screen_seconds = 0.0`, records `breaks_completed` in `daily_analytics`, and transitions back to `BreakPhase::Monitoring`.
 * **Stare Warning Guard (`stare_warning`):**
   * Dry eye occurs primarily when users stare fixated on text/code without blinking.
   * If physical face is present with eyes open continuously for $> 8.0\text{ seconds}$ without a registered blink, the system triggers a subtle stare alert (synthesized waterdrop chime + notification).

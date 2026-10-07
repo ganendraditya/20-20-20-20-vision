@@ -93,4 +93,15 @@ fn test_head_pose_yaw_symmetry_gate() {
     let profile_pose = EarCalculator::estimate_head_pose(&profile_landmarks).expect("Should estimate pose");
     assert!(!profile_pose.is_facing_camera, "Side profile head angle must be rejected");
     assert!(profile_pose.yaw_ratio > 0.40);
+    assert!(profile_pose.is_resting_gaze, "Turned head qualifies as resting gaze");
+
+    // Upward pitch gaze: user tilts head up to look at ceiling / high window
+    let mut upward_landmarks = frontal_landmarks.clone();
+    // In frontal pose, eye midpoint y=3.0, baseline nose y=5.7 (downward offset = 2.7 = 0.45 * 6.0)
+    // When tilted up, nose tip moves closer to or above eye level (e.g. y=3.2)
+    upward_landmarks[1] = Landmark3D { x: 5.0, y: 3.2, z: 0.0 };
+    let upward_pose = EarCalculator::estimate_head_pose(&upward_landmarks).expect("Should estimate pose");
+    assert!(!upward_pose.is_facing_camera, "Looking upward must not be counted as facing screen");
+    assert!(upward_pose.is_resting_gaze, "Looking upward qualifies as resting gaze");
+    assert!(upward_pose.pitch_ratio >= 0.15);
 }
