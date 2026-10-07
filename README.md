@@ -26,6 +26,17 @@ The legitimate medical guideline from the **American Optometric Association (AOA
 
 ---
 
+## System Requirements
+
+- **Camera Device (Required):** Built-in laptop webcam or external USB camera (recommended: 720p or 640x480 at 15–30 FPS for optimal tracking accuracy).
+- **Supported Operating Systems:**
+  - **macOS:** macOS 11+ (Apple Silicon & Intel, verified in automated CI).
+  - **Windows:** Windows 10 / 11 64-bit (verified in automated CI).
+- **Permissions:** Camera access permission must be granted to the application when prompted by the operating system.
+- **Privacy Assurance:** Computer vision processing operates 100% locally on-device in volatile memory. No video feeds or photos are ever saved to disk or transmitted across any network.
+
+---
+
 ## Quick Install (Terminal)
 
 ### macOS
