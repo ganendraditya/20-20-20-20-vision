@@ -344,6 +344,11 @@ interface CameraFrameDto {
   eye_landmarks: Array<{ x: number; y: number }>;   // 16 points (re-mapped to full frame [0..1])
   face_landmarks: Array<{ x: number; y: number }>;  // 58 points (contour jawline, eyebrows, nose, mouth)
   image_data_base64: string | null;                 // 320x180 JPEG thumbnail
+  yaw_deg: number;                                  // Head horizontal turn angle (degrees)
+  pitch_deg: number;                                // Head vertical pitch angle (degrees)
+  roll_deg: number;                                 // In-plane head tilt angle (degrees)
+  distance_cm: number;                              // Estimated distance to camera (cm)
+  is_resting_gaze: boolean;                         // Meets optical distance rest criteria
 }
 ```
 

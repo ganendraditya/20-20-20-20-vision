@@ -40,6 +40,9 @@ pub struct HeadPoseMetrics {
     pub is_resting_gaze: bool,
     pub yaw_ratio: f32,
     pub pitch_ratio: f32,
+    pub yaw_deg: f32,
+    pub pitch_deg: f32,
+    pub roll_deg: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,8 +153,13 @@ impl EarCalculator {
         let dy = p_nose.y - my;
 
         // Yaw component is projection of d along the eye axis (horizontal relative to head):
-        let nose_offset_along_eye_axis = (dx * vx + dy * vy).abs();
+        let nose_offset_along_eye_axis_signed = dx * vx + dy * vy;
+        let nose_offset_along_eye_axis = nose_offset_along_eye_axis_signed.abs();
         let yaw_ratio = nose_offset_along_eye_axis / interocular_width;
+        let yaw_deg = (nose_offset_along_eye_axis_signed / interocular_width)
+            .clamp(-0.99, 0.99)
+            .asin()
+            .to_degrees();
 
         // Pitch component is projection of d along the perpendicular face axis:
         // In image coordinates, y increases downward.
@@ -164,6 +172,10 @@ impl EarCalculator {
         let upward_elevation = (baseline_downward_offset - normal_offset)
             .clamp(-interocular_width, interocular_width);
         let pitch_ratio = upward_elevation / interocular_width;
+        let pitch_deg = pitch_ratio.clamp(-0.99, 0.99).asin().to_degrees();
+
+        // Roll component: in-plane tilt angle of the eye axis vector (vx, vy)
+        let roll_deg = vy.atan2(vx).to_degrees();
 
         let is_turned_away = yaw_ratio > MAX_YAW_RATIO_FRONTAL;
         let is_gazing_upward = pitch_ratio >= MIN_PITCH_RATIO_UPWARD_REST;
@@ -176,6 +188,9 @@ impl EarCalculator {
             is_resting_gaze: !is_facing_camera,
             yaw_ratio,
             pitch_ratio,
+            yaw_deg,
+            pitch_deg,
+            roll_deg,
         })
     }
 

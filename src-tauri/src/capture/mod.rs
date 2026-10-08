@@ -261,6 +261,8 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         let mut avg_ear = 0.0f32;
                         let mut is_blinking = false;
                         let mut landmarks_cache = None;
+                        let mut head_pose_cache = None;
+                        let mut distance_cm = 0.0f32;
 
                         if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
                             let raw_bytes = rgb_img.as_raw();
@@ -282,6 +284,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             let mut active_crop = None;
 
                             if face_present {
+                                if let Some(bbox) = dominant_bbox.as_ref() {
+                                    let face_w_norm = (bbox.xmax - bbox.xmin).abs().clamp(0.05, 1.0);
+                                    distance_cm = (11.0 / face_w_norm).clamp(20.0, 150.0);
+                                }
+
                                 // Run ONNX FaceMesh inference prioritizing the dominant user
                                 if let Some(engine) = &mut vision_engine {
                                     let crop = FaceBoundingBox::compute_crop_region(dominant_bbox.as_ref(), w, h);
@@ -292,11 +299,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                         // Evaluate 3D Head Pose Gaze Gate (Issue #48 & #73):
                                         // User is considered facing screen ONLY if not turned away (yaw <= 0.35)
                                         // and not gazing far upward (pitch < 0.15).
-                                        let is_facing = crate::detector::EarCalculator::estimate_head_pose(&landmarks)
-                                            .map(|pose| pose.is_facing_camera)
-                                            .unwrap_or(true);
+                                        let pose_opt = crate::detector::EarCalculator::estimate_head_pose(&landmarks);
+                                        let is_facing = pose_opt.map(|pose| pose.is_facing_camera).unwrap_or(true);
 
                                         is_face = is_facing;
+                                        head_pose_cache = pose_opt;
 
                                         // Run blink detector
                                         let event = blink_detector.update(&landmarks, now);
@@ -364,7 +371,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     presence_state.next_break_seconds
                                 };
                                 if presence_state.break_phase == crate::timer::BreakPhase::BreakPending {
-                                    state.status.status_text = format!("20s Break in Progress ({}s remaining)", presence_state.break_remaining_seconds);
+                                    if !is_face {
+                                        state.status.status_text = format!("Break Counting Down ({}s remaining) 🟢", presence_state.break_remaining_seconds);
+                                    } else {
+                                        state.status.status_text = format!("Break Paused ({}s remaining) - Look away or up", presence_state.break_remaining_seconds);
+                                    }
                                 } else if is_face {
                                     state.status.status_text = "Monitoring Active".to_string();
                                 } else {
@@ -412,6 +423,16 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     None
                                 };
 
+                                let (yaw_deg, pitch_deg, roll_deg, is_resting_gaze) = match head_pose_cache {
+                                    Some(p) => (
+                                        (p.yaw_deg * 10.0).round() / 10.0,
+                                        (p.pitch_deg * 10.0).round() / 10.0,
+                                        (p.roll_deg * 10.0).round() / 10.0,
+                                        p.is_resting_gaze,
+                                    ),
+                                    None => (0.0, 0.0, 0.0, false),
+                                };
+
                                 let dto = CameraFrameDto {
                                     width: w as u32,
                                     height: h as u32,
@@ -424,6 +445,11 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     eye_landmarks: eye_points_buf.clone(),
                                     face_landmarks: face_points_buf.clone(),
                                     image_data_base64: base64_str,
+                                    yaw_deg,
+                                    pitch_deg,
+                                    roll_deg,
+                                    distance_cm: (distance_cm * 10.0).round() / 10.0,
+                                    is_resting_gaze,
                                 };
                                 let _ = app_handle.emit("camera-sandbox-frame", dto);
                             }

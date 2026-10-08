@@ -20,4 +20,9 @@ pub struct CameraFrameDto {
     pub face_landmarks: Vec<LandmarkPoint>,
     /// JPEG base64 or empty when window is minimized
     pub image_data_base64: Option<String>,
+    pub yaw_deg: f32,
+    pub pitch_deg: f32,
+    pub roll_deg: f32,
+    pub distance_cm: f32,
+    pub is_resting_gaze: bool,
 }
