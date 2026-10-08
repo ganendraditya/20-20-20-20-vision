@@ -29,15 +29,6 @@ The system verifies optical distance breaks using deterministic physical cues ra
 
 ---
 
-## References
-
-1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
-2. **American Academy of Ophthalmology (AAO):** [Blink Rate Reduction in Digital Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
-3. **Bentivoglio et al. (PubMed):** [Analysis of Blink Rate Patterns in Normal Subjects](https://pubmed.ncbi.nlm.nih.gov/9399231/)
-4. **Soukupová & Čech (CVWW 2016):** [Real-Time Eye Blink Detection using Facial Landmarks](https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf)
-
----
-
 ## System Requirements
 
 - **Camera Device (Required):** Built-in laptop webcam or external USB camera (recommended: 720p or 640x480 at 15–30 FPS for optimal tracking accuracy).
@@ -127,6 +118,15 @@ npm run tauri dev
 # 4. Run test suite
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+---
+
+## References
+
+1. **American Optometric Association (AOA):** [Computer Vision Syndrome & The 20-20-20 Rule](https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome)
+2. **American Academy of Ophthalmology (AAO):** [Blink Rate Reduction in Digital Eye Strain](https://www.aao.org/eye-health/tips-prevention/computer-usage)
+3. **Bentivoglio et al. (PubMed):** [Analysis of Blink Rate Patterns in Normal Subjects](https://pubmed.ncbi.nlm.nih.gov/9399231/)
+4. **Soukupová & Čech (CVWW 2016):** [Real-Time Eye Blink Detection using Facial Landmarks](https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf)
 
 ---
 

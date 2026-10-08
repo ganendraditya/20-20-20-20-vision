@@ -22,10 +22,17 @@ if (Test-Path $ShortcutPath) {
 # 3. Remove bin from PATH
 $BinDir = Join-Path $InstallDir "bin"
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -like "*$BinDir*") {
-    $NewPath = ($UserPath -split ";" | Where-Object { $_ -ne $BinDir }) -join ";"
-    [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
-    Write-Host "[OK] Removed 420vision from User PATH" -ForegroundColor Green
+if (-not [string]::IsNullOrEmpty($UserPath)) {
+    $NormalizedBinDir = $BinDir.TrimEnd('\/')
+    $CleanedPaths = $UserPath -split ';' | Where-Object {
+        $trimmed = $_.Trim()
+        $trimmed -and ($trimmed.TrimEnd('\/') -ne $NormalizedBinDir)
+    }
+    $NewPath = $CleanedPaths -join ';'
+    if ($NewPath -ne $UserPath) {
+        [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
+        Write-Host "[OK] Removed 420vision from User PATH" -ForegroundColor Green
+    }
 }
 
 # 4. Remove installation files

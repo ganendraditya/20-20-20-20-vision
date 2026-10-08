@@ -81,7 +81,8 @@ impl AppConfig {
     pub fn save_to_path<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
-            let _ = create_dir_all(parent);
+            create_dir_all(parent)
+                .map_err(|e| format!("Failed to create config directory {}: {}", parent.display(), e))?;
         }
 
         let json = serde_json::to_string_pretty(self)

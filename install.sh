@@ -46,11 +46,13 @@ mkdir -p "${BIN_DIR}"
 
 # Download & Extract
 echo "Downloading native macOS binary..."
-TEMP_TAR="/tmp/420vision-${LATEST_TAG}.tar.gz"
+TEMP_DIR="$(mktemp -d -t 420vision-install.XXXXXX)"
+trap 'rm -rf "${TEMP_DIR}"' EXIT
+TEMP_TAR="${TEMP_DIR}/420vision-${LATEST_TAG}.tar.gz"
 
 if curl -fL --progress-bar -o "${TEMP_TAR}" "${TAR_URL}" 2>/dev/null; then
     tar -xzf "${TEMP_TAR}" -C "${INSTALL_DIR}"
-    rm -f "${TEMP_TAR}"
+    rm -rf "${TEMP_DIR}"
 else
     echo "Pre-built release binary not yet published on GitHub Releases."
     echo "Falling back to local/manual installation layout."

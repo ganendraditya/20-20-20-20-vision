@@ -60,7 +60,7 @@ jobs:
             curl -fL -o models/facemesh.onnx "https://raw.githubusercontent.com/iperov/DeepFaceLive/fc7b787bda2b8c186e142c52857458eea3a935ed/modelhub/onnx/FaceMesh/FaceMesh.onnx"
           fi
           if [ ! -f models/ultraface.onnx ]; then
-            curl -fL -o models/ultraface.onnx "https://raw.githubusercontent.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB/master/models/onnx/version-RFB-320.onnx"
+            curl -fL -o models/ultraface.onnx "https://raw.githubusercontent.com/Linzaer/Ultra-Light-Fast-Generic-Face-Detector-1MB/dffdddda9794a50607cba8f318507a28c1c27cab/models/onnx/version-RFB-320.onnx"
           fi
 
       - name: Run Test Suite

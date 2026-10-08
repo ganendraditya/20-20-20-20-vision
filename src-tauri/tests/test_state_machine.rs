@@ -198,3 +198,143 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     assert!(evt_blink.is_blink, "Simultaneous closure of both eyes MUST register as valid blink");
     assert_eq!(evt_blink.total_blinks, 2);
 }
+
+#[test]
+fn test_swollen_eyelid_asymmetric_blink_resilience() {
+    // Issue #75: Swollen eye with resting EAR 0.20 (below static 0.22 threshold)
+    // Left eye normal: open height 3.2, EAR ~0.32
+    // Right eye swollen: open height 2.0, EAR ~0.20 (delta = 0.12 > 0.08)
+    let mut detector = BlinkDetector::new(0.22, 2.0);
+    let mut now = Instant::now();
+
+    let open_asymmetric = create_asymmetric_landmarks(3.2, 2.0, 10.0);
+    let closed_asymmetric = create_asymmetric_landmarks(0.8, 0.7, 10.0);
+
+    // 1. Establish initial open baseline across 10 frames
+    for _ in 0..10 {
+        detector.update(&open_asymmetric, now);
+        now += Duration::from_millis(67); // 15 FPS
+    }
+
+    let (bl, br) = detector.baselines();
+    assert!(bl.is_some() && br.is_some());
+    let base_left = bl.unwrap();
+    let base_right = br.unwrap();
+    assert!(base_left > 0.30, "Left eye baseline must reflect normal eye (~0.32)");
+    assert!(base_right < 0.25, "Right eye baseline must reflect swollen eye (~0.20)");
+
+    // 2. Execute 5 consecutive natural blinks
+    let mut detected_blinks = 0;
+    for _ in 0..5 {
+        // Closed for 2 frames (~134 ms)
+        now += Duration::from_millis(67);
+        detector.update(&closed_asymmetric, now);
+        now += Duration::from_millis(67);
+        detector.update(&closed_asymmetric, now);
+
+        // Reopen (2 frames to settle EMA smoothing)
+        now += Duration::from_millis(67);
+        detector.update(&open_asymmetric, now);
+        now += Duration::from_millis(67);
+        let evt = detector.update(&open_asymmetric, now);
+        if evt.is_blink {
+            detected_blinks += 1;
+        }
+
+        // Open pause between blinks
+        for _ in 0..8 {
+            now += Duration::from_millis(67);
+            detector.update(&open_asymmetric, now);
+        }
+    }
+
+    assert_eq!(
+        detected_blinks, 5,
+        "Swollen eye (EAR 0.20) must maintain 100% blink recall without being locked out"
+    );
+    assert_eq!(detector.total_blinks(), 5);
+}
+
+#[test]
+fn test_asymmetric_winking_immunity() {
+    // Swollen right eye (0.20), normal left eye (0.32)
+    // Winking either eye must NOT register as a blink
+    let mut detector = BlinkDetector::new(0.22, 2.0);
+    let mut now = Instant::now();
+
+    let open_asymmetric = create_asymmetric_landmarks(3.2, 2.0, 10.0);
+    let left_wink = create_asymmetric_landmarks(0.8, 2.0, 10.0); // Left closes, right stays 0.20
+    let right_wink = create_asymmetric_landmarks(3.2, 0.7, 10.0); // Left stays 0.32, right closes
+
+    // Establish baseline
+    for _ in 0..10 {
+        detector.update(&open_asymmetric, now);
+        now += Duration::from_millis(67);
+    }
+
+    // 1. Unilateral normal eye wink
+    now += Duration::from_millis(67);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(67);
+    detector.update(&left_wink, now);
+    now += Duration::from_millis(67);
+    let evt1 = detector.update(&open_asymmetric, now);
+    assert!(!evt1.is_blink, "Normal eye wink must NOT register as blink");
+
+    // Advance 1.1s to expire pairing window
+    now += Duration::from_millis(1100);
+    detector.update(&open_asymmetric, now);
+
+    // 2. Unilateral swollen eye wink
+    now += Duration::from_millis(67);
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(67);
+    detector.update(&right_wink, now);
+    now += Duration::from_millis(67);
+    let evt2 = detector.update(&open_asymmetric, now);
+    assert!(!evt2.is_blink, "Swollen eye wink must NOT register as blink");
+
+    assert_eq!(detector.total_blinks(), 0, "Zero false blinks on unilateral winks");
+}
+
+#[test]
+fn test_monocular_fallback_mode_and_recovery() {
+    // Right eye is patched or completely swollen shut (> 2.0s simulated timeout)
+    let mut detector = BlinkDetector::new(0.22, 2.0);
+    detector.set_monocular_timeout(2.0); // Set fast 2.0s timeout for test
+    let mut now = Instant::now();
+
+    let both_open = create_synthetic_landmarks(3.2, 10.0);
+    let right_patched = create_asymmetric_landmarks(3.2, 0.5, 10.0); // Right eye permanently shut
+    let left_blink = create_asymmetric_landmarks(0.8, 0.5, 10.0); // Left eye blinks while right is shut
+
+    // Initial state: right eye is patched
+    for _ in 0..5 {
+        detector.update(&right_patched, now);
+        now += Duration::from_millis(100);
+    }
+    assert!(!detector.is_monocular(), "Should not enter monocular mode immediately");
+
+    // Advance time past 2.0s timeout with right eye continuously closed
+    now += Duration::from_millis(2100);
+    detector.update(&right_patched, now);
+    assert!(detector.is_monocular(), "Must enter Monocular Mode when one eye is persistently closed");
+
+    // Left eye blinks in Monocular Mode -> should register WITHOUT waiting for right eye!
+    now += Duration::from_millis(100);
+    detector.update(&left_blink, now);
+    now += Duration::from_millis(100);
+    detector.update(&left_blink, now);
+    now += Duration::from_millis(100);
+    detector.update(&right_patched, now);
+    now += Duration::from_millis(100);
+    let evt_mono = detector.update(&right_patched, now);
+
+    assert!(evt_mono.is_blink, "Functional eye blink in Monocular Mode must be recognized");
+    assert_eq!(detector.total_blinks(), 1);
+
+    // Recovery: Right eye patch removed / reopens!
+    now += Duration::from_millis(100);
+    detector.update(&both_open, now);
+    assert!(!detector.is_monocular(), "Reopening occluded eye must exit Monocular Mode back to Binocular");
+}

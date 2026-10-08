@@ -66,7 +66,7 @@ $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ([string]::IsNullOrEmpty($UserPath)) {
     [Environment]::SetEnvironmentVariable("Path", $BinDir, "User")
     Write-Host "Added $BinDir to User PATH." -ForegroundColor Green
-} elseif ($UserPath -notlike "*$BinDir*") {
+} elseif (-not (($UserPath -split ';' | ForEach-Object { $_.Trim().TrimEnd('\/') }) -contains $BinDir.TrimEnd('\/'))) {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
     Write-Host "Added $BinDir to User PATH." -ForegroundColor Green
 }

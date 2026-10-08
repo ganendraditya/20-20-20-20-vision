@@ -121,13 +121,42 @@ Core discipline governing automated agent interactions:
 - **Strict English Consistency Across Repository Artefacts:** All documentation files (`*.md`), technical specifications, GitHub Issues, Pull Request descriptions, Git commit messages, and GitHub Release notes **MUST BE WRITTEN EXCLUSIVELY IN CLEAR, CONCISE ENGLISH**. Maintain strict language consistency across all repository artefacts for international open-source parity.
 
 ### 4. Code Review Scientific Verification Protocol (Anti-Hallucinated Findings)
-When conducting AI Code Reviews (via `ocr review`, dual LLM evaluations, or manual diff inspection), the agent **MUST NOT ACCEPT REVIEWER FINDINGS AT FACE VALUE OR ACT AS A SYCOPHANT TO REVIEW BOTS**. Follow a mandatory, evidence-backed verification protocol before touching any code:
+When conducting AI Code Reviews (via `ocr review`, `ocr scan`, multi-model LLM evaluations, or manual diff inspection) and security audits (`security-audit` skill), the agent **MUST NOT ACCEPT REVIEWER FINDINGS AT FACE VALUE OR ACT AS A SYCOPHANT TO REVIEW BOTS**. Follow a mandatory, evidence-backed verification protocol before touching any code:
 
+- **Multi-Model Review & Adversarial Consensus:**
+  - Never rely on a single LLM reviewer's perspective for critical code reviews or algorithmic tuning. Single models exhibit provider-specific blind spots, training biases, and sycophantic tendencies.
+  - **Workload-Calibrated Model Strategy:**
+    1. *Targeted PR Reviews (`ocr review` on Git Diffs):* Because PR diffs are lightweight and bounded in token volume, **mandatory dual-model evaluation** is enforced (e.g., cross-evaluating the diff with `claude-sonnet-4-6` paired with `gemini-3.8-flash-low`). A finding is credible if both models agree or if an empirical test case confirms it.
+    2. *Full Subsystem Scans & Deep Security Audits (`ocr scan` & `security-audit`):* Because scanning entire directories entails heavy token consumption and high timeout risks, do NOT run naive whole-directory scans through multiple models simultaneously. Instead, employ the **Two-Tier Triage Protocol**:
+       - *Tier 1 (Broad Triage Scan):* Run the scoped subsystem scan using **1 primary frontier model** (`claude-sonnet-4-6` or `gemini-pro`) to surface initial prospective findings.
+       - *Tier 2 (Adversarial Cross-Verification on High/Critical Findings):* Isolate the specific code contexts for any `High` or `Critical` severity findings and submit them to an independent second model specifically for adversarial verification (*"Model A flagged potential race condition/injection here; verify whether this is genuine or an LLM hallucination"*). Stylistic or low-severity suggestions do not require secondary model passes.
 - **Mandatory User Presentation Before Applying Changes:**
   - The agent is **STRICTLY FORBIDDEN** from unilaterally modifying code, committing, or merging fixes immediately after receiving automated review comments without first presenting the findings dialectically to the user.
   - Present a structured scorecard: categorize items into **Hard Blockers / Confirmed Bugs** vs **False Positives / Rejected Claims** vs **Architectural Optimizations**, complete with reproduction proof.
 
-- **Step 1: Problem Validity Verification (Is this a genuine defect or a hallucination/misunderstanding?):**
+- **Full Repository Review Protocol (`ocr scan` Anti-Timeout Execution):**
+  - **Root Cause of Large Scan Hangs:** Running naive unflagged `ocr scan` attempts to evaluate all files indiscriminately, forcing the LLM reviewer to ingest massive binary ONNX models (`models/*.onnx`), raw test fixtures (`tests/fixtures/*.png`), and build artifacts (`target/`, `node_modules/`, `*.lock`). This blows through token budgets and triggers network gateway timeouts with zero output.
+  - **Mandatory Safe Execution Standard for Whole-Repo `ocr scan`:**
+    1. **Mandatory Exclusions:** Always exclude binary models, image fixtures, lockfiles, and generated output:
+       ```bash
+       ocr scan --exclude '**/models/**,**/fixtures/**,**/*.onnx,**/*.png,**/*.lock' --no-plan --concurrency 8 --timeout 20
+       ```
+    2. **Modular Subsystem Scoping (Recommended over Monolith):** Rather than scanning the entire repository in one unconstrained execution, scan focused architectural domains:
+       ```bash
+       # Vision ONNX inference & tracking
+       ocr scan --path src-tauri/src/vision --no-plan --concurrency 8
+       # Core blink detector & EAR state machine
+       ocr scan --path src-tauri/src/detector --no-plan --concurrency 8
+       # Presence timer & OS notification daemons
+       ocr scan --path src-tauri/src/timer,src-tauri/src/notifier --no-plan --concurrency 8
+       # Frontend presentation & HUD telemetry
+       ocr scan --path src --no-plan --concurrency 8
+       ```
+    3. **Pre-Flight Verification:** Always execute `ocr scan --preview <flags>` first to ensure the reviewed file count is within bounded, reasonable limits (< 30 code files per run) before dispatching LLM subtasks.
+    4. **Session Resumption & Logging:** In the event of network disruption, leverage `--resume <session-id>` to continue without discarding completed work.
+
+- **Step 1: Problem Validity & Exploitability Verification (Is this a genuine defect or a hallucination/misunderstanding?):**
+  - **Universal Applicability:** This verification protocol is non-negotiable across ALL automated scanning tools: `ocr review`, `ocr scan`, and `security-audit`.
   - **Never Assume Validity:** Treat reviewer comments with healthy skepticism. LLM reviewers frequently misread token-truncated code, misunderstand project conventions, or flag stylistic non-issues as critical bugs.
   - **Define the Concrete Failure Scenario:** *"Under what exact inputs, camera angles, or concurrency state does this failure occur, and what is the exact stack trace or measurable impact?"*
   - **Execute an Empirical Reproduction Script:** Run a minimal terminal script, synthetic frame assertion, or benchmark harness to test the failure hypothesis.
@@ -142,7 +171,24 @@ When conducting AI Code Reviews (via `ocr review`, dual LLM evaluations, or manu
     1. Re-run the reproduction script from Step 1 to verify the defect is genuinely eliminated.
     2. Run full test suites (`cargo test`, `npm run tauri build -- --no-bundle`) to verify zero regressions across neighboring systems.
 
-### 5. Execution, Timeouts & Heavy Workflows (CLI & Review)
+### 5. Security Auditing Protocol for Edge Desktop Daemon (Guidance Mode vs. Full Audit Mode)
+Security audits evaluate local attack surfaces, high-privilege subprocess execution, and native IPC trust boundaries:
+- **Core Desktop Daemon Attack Surfaces in 420vision:**
+  1. *OS Subprocess Execution Injection (`notifier/*`):* Execution of native notification scripts (`osascript` on macOS, `powershell.exe` on Windows) and system audio synthesis/playback (`afplay`). Must always use positional argument vectors (`argv`) or strictly sanitized environment variables, never unescaped string interpolation.
+  2. *Temporary Audio File Handling (`notifier/*`):* Ephemeral PCM WAV audio files written to system temp directories (`/tmp`, `NamedTempFile`). Must prevent symlink attacks, avoid race conditions, and guarantee automatic descriptor teardown upon thread exit.
+  3. *Tauri IPC & Webview Isolation (`src-tauri/src/lib.rs` & IPC handlers):* Enforce strict Tauri Capability boundaries and Content Security Policy (CSP). Never expose raw filesystem traversal, unauthenticated shell commands, or raw camera byte pipes to webview contexts.
+  4. *SQLite Persistence & Query Parameterization (`storage/*`):* All analytics and configuration persistence queries must strictly use parameterized inputs (`params![]`) with zero string formatting.
+  5. *Hardware Handle & Memory Safety (`capture/*` & `vision/*`):* Camera device streams (`AVFoundation` / `MediaFoundation`) and ONNX Runtime C-bindings (`ort`) must deterministically release hardware locks when external applications (Zoom, Teams, Meet) request access.
+
+- **Operating Modes:**
+  - **Guidance Mode (Per-Feature / Sensitive PR Reviews):**
+    - *When to Use:* Triggered whenever a PR touches security-sensitive surfaces: OS subprocess execution (`notifier/`), database persistence (`storage/`), hardware capture streams (`capture/`), or native IPC commands (`src-tauri/src/lib.rs`).
+    - *Execution:* Lightweight and targeted. Traces untrusted input to execution sinks without creating permanent overhead files.
+  - **Full Audit Mode (Milestone & Pre-Release Baselines):**
+    - *When to Use:* Prior to major version releases (`vX.Y.0`), architectural shifts, or installer packaging.
+    - *Execution:* Runs the formal multi-phase audit workflow (`security-audit` skill) with modular coverage ledgers (`coverage-ledger.json`) and structured reporting (`REPORT.md`). Always scope target paths rather than running unconstrained whole-repo scans.
+
+### 6. Execution, Timeouts & Heavy Workflows (CLI & Review)
 - **Harness Shell Timeout Vigilance:** The default harness shell timeout (120s / 2 minutes) is strictly inadequate for heavy tasks, reasoning models (Gemini Pro, Claude Sonnet/Opus), or large builds.
   - When invoking `ocr review`, builds, or test suites, **explicitly pass `timeout: 300000` to `600000` (5–10 minutes)**. Never let default 120s cutoff waste tokens or interrupt reasoning mid-stream.
   - For `ocr review`, pass `--effort low` and `--exclude 'src-tauri/tests/*,README.md'` to prevent unbounded roundtrips while keeping token usage bounded.
