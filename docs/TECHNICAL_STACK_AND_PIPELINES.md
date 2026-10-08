@@ -228,6 +228,21 @@ $$\text{EMA}_t = \alpha \cdot \text{EAR}_t + (1 - \alpha) \cdot \text{EMA}_{t-1}
    * If left and right eyes complete blinks within **$\le 1.0\text{ second}$**, the pair resolves into **$+1\text{ valid blink}$**.
    * Unpaired unilateral winks (e.g. winking only left eye) expire after $1.0\text{s}$ and are discarded.
 
+### 3.4.1 Dynamic Independent Dual-Eye Baseline Tracking (Issue #75)
+
+To protect users experiencing unilateral swelling (styes, blepharitis, ptosis) or natural facial asymmetry without forcing manual recalibration:
+* **Independent Adaptive Open Baselines:**
+  - Continuously tracks independent open-eye baselines $B_L$ and $B_R$.
+  - When eye EAR $> B$, baseline adapts upwards quickly ($\alpha_{\text{up}} = 0.35$).
+  - When resting open between threshold and baseline, adapts downwards slowly ($\alpha_{\text{down}} = 0.005$) to accommodate gradual relaxation.
+  - While eye is closed ($\text{EAR} < \text{Threshold}$), baseline updates freeze.
+* **Proportional Relative-Drop Closure ($\ge 35\%$ Drop):**
+  $$\text{Threshold}_{\text{eye}} = \min(\text{Threshold}_{\text{config}}, B_{\text{eye}} \times (1.0 - 0.35))$$
+  - A swollen eye ($B_R \approx 0.20$) dynamically adjusts its threshold to $0.130$, preventing it from being locked out as permanently closed by the default $0.22$ cutoff.
+* **Monocular Fallback Mode:**
+  - If exactly one eye is continuously closed for $\ge 60.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
+  - Reopening the occluded eye seamlessly restores Binocular Mode.
+
 ### 3.5 Head Pose Yaw Symmetry Gate (Zero-Model Geometric Filter)
 
 Generic face detectors occasionally fire on non-frontal head angles, such as the back of the head, downward neck flexion, or steep side profiles where only one eye is visible.

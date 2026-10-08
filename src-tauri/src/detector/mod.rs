@@ -276,11 +276,11 @@ impl EyeCalibrator {
         }
 
         let mut sorted_open = self.open_samples.clone();
-        sorted_open.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_open.sort_by(|a, b| a.total_cmp(b));
         let median_open = sorted_open[sorted_open.len() / 2];
 
         let mut sorted_closed = self.closed_samples.clone();
-        sorted_closed.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_closed.sort_by(|a, b| a.total_cmp(b));
         let median_closed = sorted_closed[sorted_closed.len() / 2];
 
         if median_open <= median_closed {

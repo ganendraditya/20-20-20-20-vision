@@ -12,11 +12,11 @@ FALLBACK_CONFIG="${HOME}/.config/420vision"
 echo "Uninstalling 420vision..."
 
 # 1. Kill running processes
-pkill -f "420vision" 2>/dev/null || true
+pkill -x "420vision" 2>/dev/null || true
 
 # 2. Remove LaunchAgent
 if [ -f "${PLIST_FILE}" ]; then
-    launchctl unload "${PLIST_FILE}" 2>/dev/null || true
+    launchctl unload -w "${PLIST_FILE}" 2>/dev/null || true
     rm -f "${PLIST_FILE}"
     echo "[OK] Removed LaunchAgent"
 fi

@@ -105,3 +105,49 @@ fn test_head_pose_yaw_symmetry_gate() {
     assert!(upward_pose.is_resting_gaze, "Looking upward qualifies as resting gaze");
     assert!(upward_pose.pitch_ratio >= 0.15);
 }
+
+#[test]
+fn test_swollen_eye_independent_ear_metrics_and_calibration() {
+    use vision420_lib::detector::BlinkDetector;
+    let mut calc = EarCalculator::new(0.4);
+
+    // Left eye normal (height 3.2, width 10.0 -> EAR 0.32)
+    // Right eye swollen/bintitan (height 2.0, width 10.0 -> EAR 0.20)
+    // Asymmetry delta = 0.12 (> 0.08)
+    let mut asymmetric_landmarks = vec![Landmark3D { x: 0.0, y: 0.0, z: 0.0 }; 468];
+    // Left eye (33, 133, 159, 145, 158, 153, 160, 144)
+    asymmetric_landmarks[33] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[133] = Landmark3D { x: 10.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[159] = Landmark3D { x: 5.0, y: 3.2, z: 0.0 };
+    asymmetric_landmarks[145] = Landmark3D { x: 5.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[158] = Landmark3D { x: 3.0, y: 3.2, z: 0.0 };
+    asymmetric_landmarks[153] = Landmark3D { x: 3.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[160] = Landmark3D { x: 7.0, y: 3.2, z: 0.0 };
+    asymmetric_landmarks[144] = Landmark3D { x: 7.0, y: 0.0, z: 0.0 };
+
+    // Right eye (362, 263, 386, 374, 387, 373, 385, 380)
+    asymmetric_landmarks[362] = Landmark3D { x: 0.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[263] = Landmark3D { x: 10.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[386] = Landmark3D { x: 5.0, y: 2.0, z: 0.0 };
+    asymmetric_landmarks[374] = Landmark3D { x: 5.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[387] = Landmark3D { x: 3.0, y: 2.0, z: 0.0 };
+    asymmetric_landmarks[373] = Landmark3D { x: 3.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[385] = Landmark3D { x: 7.0, y: 2.0, z: 0.0 };
+    asymmetric_landmarks[380] = Landmark3D { x: 7.0, y: 0.0, z: 0.0 };
+    asymmetric_landmarks[1] = Landmark3D { x: 5.0, y: 5.0, z: 0.0 };
+
+    let metrics = calc.calculate(&asymmetric_landmarks).expect("Should compute metrics");
+    assert!((metrics.left_ear - 0.32).abs() < 1e-4, "Left eye EAR must reflect 0.32");
+    assert!((metrics.right_ear - 0.20).abs() < 1e-4, "Right eye EAR must reflect 0.20");
+    assert!((metrics.avg_ear - 0.26).abs() < 1e-4, "Avg EAR must be 0.26");
+
+    // Feed to BlinkDetector and verify baselines adapt independently
+    let mut detector = BlinkDetector::new(0.22, 2.0);
+    let now = std::time::Instant::now();
+    for _ in 0..5 {
+        detector.update(&asymmetric_landmarks, now);
+    }
+    let (bl, br) = detector.baselines();
+    assert!(bl.unwrap() > 0.30);
+    assert!(br.unwrap() < 0.25);
+}
