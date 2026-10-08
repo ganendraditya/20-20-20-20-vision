@@ -27,6 +27,11 @@ interface CameraFrameDto {
   eye_landmarks: LandmarkPoint[];
   face_landmarks: LandmarkPoint[];
   image_data_base64: string | null;
+  yaw_deg: number;
+  pitch_deg: number;
+  roll_deg: number;
+  distance_cm: number;
+  is_resting_gaze: boolean;
 }
 
 interface DailyCompliance {
@@ -329,9 +334,15 @@ async function listenToCameraFrames() {
     const canvas = document.getElementById("cam-mesh-canvas") as HTMLCanvasElement | null;
     const ctx = canvas?.getContext("2d");
     const placeholder = document.getElementById("cam-loading-placeholder");
-    const hudBadge = document.getElementById("cam-hud-badge");
+    const hudTop = document.getElementById("cam-hud-top");
+    const hudBottom = document.getElementById("cam-hud-bottom");
     const earText = document.getElementById("cam-hud-ear");
+    const triggerText = document.getElementById("cam-hud-trigger");
     const faceText = document.getElementById("cam-hud-face");
+    const yawText = document.getElementById("cam-hud-yaw");
+    const pitchText = document.getElementById("cam-hud-pitch");
+    const rollText = document.getElementById("cam-hud-roll");
+    const distText = document.getElementById("cam-hud-dist");
     const chkShowMesh = document.getElementById("chk-show-mesh") as HTMLInputElement | null;
     const chkShowFace = document.getElementById("chk-show-face-contour") as HTMLInputElement | null;
 
@@ -343,7 +354,8 @@ async function listenToCameraFrames() {
         videoImg.src = data.image_data_base64;
         videoImg.style.display = "block";
         if (placeholder) placeholder.style.display = "none";
-        if (hudBadge) hudBadge.style.display = "flex";
+        if (hudTop) hudTop.style.display = "flex";
+        if (hudBottom) hudBottom.style.display = "flex";
       }
 
       // Draw Landmark Overlay on canvas
@@ -394,11 +406,76 @@ async function listenToCameraFrames() {
       currentEar = data.avg_ear;
       isFaceDetected = data.is_face_detected;
 
-      // Update HUD metrics
-      if (earText) earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
+      // 1. EAR & Blink status
+      if (earText) {
+        earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
+        earText.className = data.is_blinking ? "hud-pill hud-pill-danger" : "hud-pill";
+      }
+
+      if (triggerText) {
+        triggerText.textContent = "Trigger: Δ 35%";
+      }
+
+      // 2. Face detection badge
       if (faceText) {
-        faceText.textContent = data.is_face_detected ? "Face: Detected" : "Face: Not Found";
-        faceText.style.color = data.is_face_detected ? "#10b981" : "#ef4444";
+        faceText.textContent = data.is_face_detected ? "Face: Locked" : "Face: Searching";
+        faceText.className = data.is_face_detected ? "hud-pill hud-pill-active" : "hud-pill hud-pill-danger";
+      }
+
+      // 3. 3D Orientation (Yaw / Pitch / Roll) with authoritative backend resting state
+      if (yawText) {
+        const roundedYaw = Math.round(data.yaw_deg) || 0;
+        const absYaw = Math.abs(roundedYaw);
+        const sign = roundedYaw > 0 ? "+" : "";
+        if (data.is_resting_gaze && absYaw >= 15) {
+          yawText.textContent = `Yaw: ${sign}${roundedYaw}° 🟢 (Resting)`;
+          yawText.className = "hud-pill hud-pill-active";
+        } else {
+          yawText.textContent = `Yaw: ${sign}${roundedYaw}° (Screen)`;
+          yawText.className = "hud-pill";
+        }
+      }
+
+      if (pitchText) {
+        const roundedPitch = Math.round(data.pitch_deg) || 0;
+        const sign = roundedPitch > 0 ? "+" : "";
+        if (data.is_resting_gaze && data.pitch_deg >= 5) {
+          pitchText.textContent = `Pitch: ${sign}${roundedPitch}° 🟢 (Upward Rest)`;
+          pitchText.className = "hud-pill hud-pill-active";
+        } else if (roundedPitch < -15) {
+          pitchText.textContent = `Pitch: ${roundedPitch}° (Desk/Phone)`;
+          pitchText.className = "hud-pill hud-pill-warning";
+        } else {
+          pitchText.textContent = `Pitch: ${sign}${roundedPitch}°`;
+          pitchText.className = "hud-pill";
+        }
+      }
+
+      if (rollText) {
+        const roundedRoll = Math.round(data.roll_deg) || 0;
+        const sign = roundedRoll > 0 ? "+" : "";
+        rollText.textContent = `Roll: ${sign}${roundedRoll}°`;
+        rollText.className = "hud-pill";
+      }
+
+      // 4. Physical distance estimation
+      if (distText) {
+        if (data.is_face_detected && data.distance_cm > 0) {
+          const d = Math.round(data.distance_cm);
+          if (d < 40) {
+            distText.textContent = `Dist: ~${d} cm (Too Close ⚠️)`;
+            distText.className = "hud-pill hud-pill-warning";
+          } else if (d > 85) {
+            distText.textContent = `Dist: ~${d} cm (Far Field)`;
+            distText.className = "hud-pill hud-pill-info";
+          } else {
+            distText.textContent = `Dist: ~${d} cm (Optimal)`;
+            distText.className = "hud-pill hud-pill-active";
+          }
+        } else {
+          distText.textContent = "Dist: -- cm";
+          distText.className = "hud-pill";
+        }
       }
 
       // Rising-edge trigger: count only on transition to prevent multi-frame duplicate increments

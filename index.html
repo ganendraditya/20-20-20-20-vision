@@ -64,9 +64,16 @@
               <p>Camera Stream Ready</p>
               <small class="text-muted">Look at the camera to test blinks</small>
             </div>
-            <div id="cam-hud-badge" class="cam-hud-overlay" style="display: none;">
-              <span id="cam-hud-ear">EAR: 0.00</span>
-              <span id="cam-hud-face">Face: Detected</span>
+            <div id="cam-hud-top" class="cam-hud-bar cam-hud-bar-top" style="display: none;">
+              <span id="cam-hud-ear" class="hud-pill">EAR: 0.00</span>
+              <span id="cam-hud-trigger" class="hud-pill">Trigger: Δ 35%</span>
+              <span id="cam-hud-face" class="hud-pill">Face: Searching</span>
+            </div>
+            <div id="cam-hud-bottom" class="cam-hud-bar cam-hud-bar-bottom" style="display: none;">
+              <span id="cam-hud-yaw" class="hud-pill">Yaw: 0°</span>
+              <span id="cam-hud-pitch" class="hud-pill">Pitch: 0°</span>
+              <span id="cam-hud-roll" class="hud-pill">Roll: 0°</span>
+              <span id="cam-hud-dist" class="hud-pill">Dist: -- cm</span>
             </div>
           </div>
           <div class="sandbox-controls">
