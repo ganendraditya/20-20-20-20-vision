@@ -220,9 +220,9 @@ impl BlinkDetector {
             }
         };
 
-        // Proportional relative-drop threshold capped at configured/test ceiling
-        let thresh_left = (b_left * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold.max(0.25));
-        let thresh_right = (b_right * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold.max(0.25));
+        // Proportional relative-drop threshold capped at configured/calibrated ceiling
+        let thresh_left = (b_left * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
+        let thresh_right = (b_right * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
 
         let left_eye_closed = ear_metrics.smoothed_left_ear < thresh_left;
         let right_eye_closed = ear_metrics.smoothed_right_ear < thresh_right;
