@@ -243,6 +243,17 @@ To protect users experiencing unilateral swelling (styes, blepharitis, ptosis) o
   - If exactly one eye is continuously closed for $\ge 60.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
   - Reopening the occluded eye seamlessly restores Binocular Mode.
 
+### 3.4.2 Velocity Slope Sampling for Low-FPS (10–12 FPS) Micro-Blinks (Issue #64)
+
+On low-end webcams or low-light conditions running at $\le 12.5\text{ FPS}$ ($\Delta t \ge 75\text{ ms}$), fast biological micro-blinks ($60\text{--}80\text{ ms}$) often elude static thresholding because the eye is sampled midway (dipping to $\sim 0.23$ rather than full closure $< 0.20$):
+* **Temporal Derivative Tracking:**
+  - Calculates per-eye velocity: $v_t = \frac{\text{EAR}_t - \text{EAR}_{t-1}}{\Delta t}$.
+  - Detects rapid closing descent ($v_t \le -0.40\text{ s}^{-1}$ with drop $\ge 20\%$ below baseline) followed by immediate elastic rebound ($v_{t+1} \ge +0.25\text{ s}^{-1}$ returning towards $\ge 75\%$ baseline).
+* **Single-Frame Low-FPS Adaptive Window:**
+  - At $\le 12\text{ FPS}$ ($\Delta t \ge 75\text{ ms}$), 1-frame deep closures ($80\text{--}120\text{ ms}$) are admitted into valid blinks rather than being rejected by the high-FPS 2-frame noise guard.
+* **Downward Reading Gaze Immunity:**
+  - When head pitch is tilted down toward desk/keyboard ($\text{Pitch} < -15^\circ$), blink triggers and velocity spikes are suppressed, preventing false positive blink counts during reading.
+
 ### 3.5 Head Pose Yaw Symmetry Gate (Zero-Model Geometric Filter)
 
 Generic face detectors occasionally fire on non-frontal head angles, such as the back of the head, downward neck flexion, or steep side profiles where only one eye is visible.

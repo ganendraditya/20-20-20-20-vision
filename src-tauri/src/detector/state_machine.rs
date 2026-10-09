@@ -40,6 +40,13 @@ pub struct BlinkDetector {
     right_closure_start: Option<Instant>,
     last_right_blink_at: Option<Instant>,
 
+    // Velocity slope sampling for low-FPS webcams (Issue #64)
+    last_frame_instant: Option<Instant>,
+    prev_left_ear: Option<f32>,
+    prev_right_ear: Option<f32>,
+    left_velocity_spike: bool,
+    right_velocity_spike: bool,
+
     // Stare tracking
     last_open_instant: Instant,
     stare_warning_issued: bool,
@@ -84,6 +91,11 @@ impl BlinkDetector {
             right_is_closed: false,
             right_closure_start: None,
             last_right_blink_at: None,
+            last_frame_instant: None,
+            prev_left_ear: None,
+            prev_right_ear: None,
+            left_velocity_spike: false,
+            right_velocity_spike: false,
             last_open_instant: now,
             stare_warning_issued: false,
             blink_timestamps: VecDeque::with_capacity(100),
@@ -128,6 +140,11 @@ impl BlinkDetector {
         self.right_is_closed = false;
         self.right_closure_start = None;
         self.last_right_blink_at = None;
+        self.last_frame_instant = None;
+        self.prev_left_ear = None;
+        self.prev_right_ear = None;
+        self.left_velocity_spike = false;
+        self.right_velocity_spike = false;
         self.last_open_instant = now;
         self.stare_warning_issued = false;
         self.blink_timestamps.clear();
@@ -136,12 +153,15 @@ impl BlinkDetector {
 
     /// Process a frame with 468 landmarks and return the blink / stare detection results
     pub fn update(&mut self, landmarks: &[Landmark3D], now: Instant) -> BlinkEvent {
-        // Head Pose Yaw Gate (Issue #48):
+        // Head Pose Yaw Gate (Issue #48 & #73 & #64):
         // If the subject is severely turned away (yaw_ratio > 0.35, e.g. looking away, profile, or back of head),
         // reject blink detection and pause stare tracking immediately.
-        let is_facing = crate::detector::EarCalculator::estimate_head_pose(landmarks)
+        let pose_opt = crate::detector::EarCalculator::estimate_head_pose(landmarks);
+        let is_facing = pose_opt
             .map(|pose| pose.is_facing_camera)
             .unwrap_or(true);
+        let pitch_deg = pose_opt.map(|pose| pose.pitch_deg).unwrap_or(0.0);
+        let is_downward_reading_gaze = pitch_deg < -15.0;
 
         // Guard against updating EMA filter with distorted EAR values while subject is looking away
         let ear_metrics_opt = if is_facing {
@@ -160,6 +180,11 @@ impl BlinkDetector {
                 self.right_is_closed = false;
                 self.right_closure_start = None;
                 self.right_closed_frames = 0;
+                self.last_frame_instant = None;
+                self.prev_left_ear = None;
+                self.prev_right_ear = None;
+                self.left_velocity_spike = false;
+                self.right_velocity_spike = false;
                 self.last_open_instant = now;
                 self.stare_warning_issued = false;
                 return BlinkEvent {
@@ -224,12 +249,71 @@ impl BlinkDetector {
         let thresh_left = (b_left * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
         let thresh_right = (b_right * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
 
+        let dt = match self.last_frame_instant {
+            Some(prev) => now.checked_duration_since(prev).map(|d| d.as_secs_f32()).unwrap_or(0.0),
+            None => 0.0,
+        };
+        self.last_frame_instant = Some(now);
+        // Low-FPS regime: frame intervals between 80ms and 160ms (approx 6 to 12.5 FPS)
+        let is_low_fps = dt >= 0.08 && dt <= 0.16;
+
+        // Velocity slope sampling for half-sampled micro-blinks on low-FPS cameras (Issue #64)
+        let mut left_velocity_blink = false;
+        let mut right_velocity_blink = false;
+
+        let cur_left_ear = ear_metrics.smoothed_left_ear;
+        let cur_right_ear = ear_metrics.smoothed_right_ear;
+
+        if is_low_fps && !is_downward_reading_gaze && dt > 0.001 {
+            // Check left eye velocity slope
+            if let Some(prev_l) = self.prev_left_ear {
+                let delta_l = cur_left_ear - prev_l;
+                let vel_l = delta_l / dt;
+                let drop_ratio = (b_left - cur_left_ear) / b_left;
+
+                // Step 1: Detect rapid descent (at least 20% drop below baseline, velocity <= -0.40 /s)
+                if drop_ratio >= 0.20 && vel_l <= -0.40 {
+                    self.left_velocity_spike = true;
+                } else if self.left_velocity_spike {
+                    // Step 2: Detect rapid rebound recovery (velocity >= +0.25 /s, returning towards baseline)
+                    if vel_l >= 0.25 && cur_left_ear >= b_left * 0.75 {
+                        left_velocity_blink = true;
+                    }
+                    self.left_velocity_spike = false;
+                }
+            }
+
+            // Check right eye velocity slope
+            if let Some(prev_r) = self.prev_right_ear {
+                let delta_r = cur_right_ear - prev_r;
+                let vel_r = delta_r / dt;
+                let drop_ratio = (b_right - cur_right_ear) / b_right;
+
+                if drop_ratio >= 0.20 && vel_r <= -0.40 {
+                    self.right_velocity_spike = true;
+                } else if self.right_velocity_spike {
+                    if vel_r >= 0.25 && cur_right_ear >= b_right * 0.75 {
+                        right_velocity_blink = true;
+                    }
+                    self.right_velocity_spike = false;
+                }
+            }
+        } else {
+            self.left_velocity_spike = false;
+            self.right_velocity_spike = false;
+        }
+
+        self.prev_left_ear = Some(cur_left_ear);
+        self.prev_right_ear = Some(cur_right_ear);
+
         let left_eye_closed = ear_metrics.smoothed_left_ear < thresh_left;
         let right_eye_closed = ear_metrics.smoothed_right_ear < thresh_right;
 
         let mut left_blink_completed = false;
         let mut right_blink_completed = false;
         let mut is_resting_event = false;
+
+        let min_closed_frames = if is_low_fps { 1 } else { 2 };
 
         // --- Process Left Eye ---
         if left_eye_closed {
@@ -250,9 +334,9 @@ impl BlinkDetector {
         } else if self.left_is_closed {
             if let Some(start) = self.left_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                // Strict guard against single-frame alpha-spike glitches:
-                // Require at least 2 consecutive frames under closure AND minimum 80ms duration
-                if self.left_closed_frames >= 2 && (0.08..=0.8).contains(&duration) {
+                // Adaptive temporal guard: at low FPS (<= 12 FPS), accept 1-frame deep closure (80-120ms);
+                // at normal FPS (15-30 FPS), require at least 2 consecutive frames under closure.
+                if self.left_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
                     left_blink_completed = true;
                 }
             }
@@ -261,6 +345,14 @@ impl BlinkDetector {
             self.left_closed_frames = 0;
             self.last_open_instant = now;
             self.stare_warning_issued = false;
+        }
+
+        if left_velocity_blink && !is_downward_reading_gaze {
+            left_blink_completed = true;
+            // Suppress standard closure state to prevent double-counting on reopen
+            self.left_is_closed = false;
+            self.left_closure_start = None;
+            self.left_closed_frames = 0;
         }
 
         // --- Process Right Eye ---
@@ -282,9 +374,7 @@ impl BlinkDetector {
         } else if self.right_is_closed {
             if let Some(start) = self.right_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                // Strict guard against single-frame alpha-spike glitches:
-                // Require at least 2 consecutive frames under closure AND minimum 80ms duration
-                if self.right_closed_frames >= 2 && (0.08..=0.8).contains(&duration) {
+                if self.right_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
                     right_blink_completed = true;
                 }
             }
@@ -293,6 +383,25 @@ impl BlinkDetector {
             self.right_closed_frames = 0;
             self.last_open_instant = now;
             self.stare_warning_issued = false;
+        }
+
+        if right_velocity_blink && !is_downward_reading_gaze {
+            right_blink_completed = true;
+            self.right_is_closed = false;
+            self.right_closure_start = None;
+            self.right_closed_frames = 0;
+        }
+
+        if is_downward_reading_gaze {
+            left_blink_completed = false;
+            right_blink_completed = false;
+            self.left_closure_start = None;
+            self.right_closure_start = None;
+            self.left_is_closed = false;
+            self.right_is_closed = false;
+            self.left_closed_frames = 0;
+            self.right_closed_frames = 0;
+            self.last_open_instant = now;
         }
 
         if is_resting_event {

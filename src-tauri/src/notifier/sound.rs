@@ -137,7 +137,7 @@ impl AudioPlayer {
                 if temp.write_all(bytes).is_ok() {
                     let path = temp.path().to_string_lossy().to_string();
                     let mut cmd = Command::new("powershell");
-                    cmd.args(["-WindowStyle", "Hidden", "-Command", "(New-Object Media.SoundPlayer $env:SOUND_PATH).PlaySync()"])
+                    cmd.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "(New-Object Media.SoundPlayer $env:SOUND_PATH).PlaySync()"])
                         .env("SOUND_PATH", &path)
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null());

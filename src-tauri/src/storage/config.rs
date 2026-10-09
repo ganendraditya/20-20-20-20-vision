@@ -88,7 +88,14 @@ impl AppConfig {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        let temp_path = path.with_extension("tmp");
+        let temp_path = {
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("config.json");
+            let unique_name = format!("{}.{}.tmp", file_name, std::process::id());
+            path.with_file_name(unique_name)
+        };
         {
             let mut file = File::create(&temp_path)
                 .map_err(|e| format!("Failed to create temp config file: {}", e))?;

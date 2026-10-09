@@ -17,7 +17,8 @@ impl AnalyticsDb {
     pub fn open() -> Result<Self, String> {
         let db_path = Self::get_db_path();
         if let Some(parent) = db_path.parent() {
-            let _ = create_dir_all(parent);
+            create_dir_all(parent)
+                .map_err(|e| format!("Failed to create database directory {}: {}", parent.display(), e))?;
         }
         Self::open_path(db_path).map_err(|e| e.to_string())
     }
