@@ -1,4 +1,4 @@
-# 420vision (20/20 20/20 Vision)
+# 420Vision (20/20 20/20 Vision)
 
 > An ultra-lightweight, native Menu Bar / System Tray reminder & assistant for dry eye sufferers using on-device computer vision.
 

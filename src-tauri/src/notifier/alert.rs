@@ -64,7 +64,7 @@ impl Notifier {
                     }
                 "#;
                 let mut cmd = Command::new("powershell");
-                cmd.args(["-WindowStyle", "Hidden", "-Command", script])
+                cmd.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
                     .env("TOAST_TITLE", &title_owned)
                     .env("TOAST_MSG", &message_owned)
                     .stdout(std::process::Stdio::null())
