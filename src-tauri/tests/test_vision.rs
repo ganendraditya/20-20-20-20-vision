@@ -434,6 +434,7 @@ enum VideoScenarioType {
     DoubleSwappingIdenticalTwins,
 }
 
+#[allow(dead_code)]
 struct VideoTestCase {
     name: &'static str,
     scenario: VideoScenarioType,

@@ -1,3 +1,6 @@
+pub mod clahe;
+
+pub use clahe::ClaheConfig;
 use ndarray::Array4;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -97,6 +100,7 @@ impl FaceBoundingBox {
 
 pub struct FaceMeshEngine {
     session: Session,
+    pub clahe_config: ClaheConfig,
 }
 
 impl FaceMeshEngine {
@@ -111,13 +115,25 @@ impl FaceMeshEngine {
             .commit_from_file(model_path)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
-        Ok(Self { session })
+        Ok(Self {
+            session,
+            clahe_config: ClaheConfig::default(),
+        })
+    }
+
+    /// Builder method to override CLAHE configuration
+    pub fn with_clahe_config(mut self, config: ClaheConfig) -> Self {
+        self.clahe_config = config;
+        self
     }
 
     /// Preprocess an RGB image buffer (width x height) into [1, 192, 192, 3] normalized float tensor.
     /// If a dominant face bounding box is provided (in [0..1] normalized full-frame coordinates),
     /// crops with padding around that primary face to isolate the user from background subjects.
     /// Otherwise, falls back to the center square crop.
+    ///
+    /// Applies Local Contrast Normalization (CLAHE) on the face crop to counter spectacle
+    /// screen glare and bright display overexposure (Issue #66).
     pub fn preprocess(&self, rgb_data: &[u8], width: usize, height: usize, dominant_box: Option<&FaceBoundingBox>) -> Array4<f32> {
         let mut input_tensor = Array4::<f32>::zeros((1, 192, 192, 3));
         
@@ -128,18 +144,36 @@ impl FaceMeshEngine {
         let (crop_x, crop_y, side) = FaceBoundingBox::compute_crop_region(dominant_box, width, height);
         let scale = side as f32 / 192.0;
 
+        let mut face_crop = [0u8; 192 * 192 * 3];
+
         for y in 0..192 {
+            let row = y * 192;
+            let src_y = crop_y + (y as f32 * scale).min((side - 1) as f32) as usize;
+            let src_row = src_y * width;
+
             for x in 0..192 {
                 let src_x = crop_x + (x as f32 * scale).min((side - 1) as f32) as usize;
-                let src_y = crop_y + (y as f32 * scale).min((side - 1) as f32) as usize;
-                let src_idx = (src_y * width + src_x) * 3;
+                let src_idx = (src_row + src_x) * 3;
+                let dst_idx = (row + x) * 3;
 
                 if src_idx + 2 < rgb_data.len() {
-                    // Normalize [0..255] to [0.0..1.0]
-                    input_tensor[[0, y, x, 0]] = rgb_data[src_idx] as f32 / 255.0;
-                    input_tensor[[0, y, x, 1]] = rgb_data[src_idx + 1] as f32 / 255.0;
-                    input_tensor[[0, y, x, 2]] = rgb_data[src_idx + 2] as f32 / 255.0;
+                    face_crop[dst_idx] = rgb_data[src_idx];
+                    face_crop[dst_idx + 1] = rgb_data[src_idx + 1];
+                    face_crop[dst_idx + 2] = rgb_data[src_idx + 2];
                 }
+            }
+        }
+
+        // Apply Local Contrast Normalization (CLAHE) for spectacle glare & overexposure resilience
+        clahe::apply_clahe_face_192(&mut face_crop, &self.clahe_config);
+
+        for y in 0..192 {
+            let row = y * 192;
+            for x in 0..192 {
+                let idx = (row + x) * 3;
+                input_tensor[[0, y, x, 0]] = face_crop[idx] as f32 / 255.0;
+                input_tensor[[0, y, x, 1]] = face_crop[idx + 1] as f32 / 255.0;
+                input_tensor[[0, y, x, 2]] = face_crop[idx + 2] as f32 / 255.0;
             }
         }
 
@@ -154,6 +188,10 @@ impl FaceMeshEngine {
         
         let inputs = ort::inputs![tensor_value];
         let outputs = self.session.run(inputs).map_err(|e| format!("Inference failed: {}", e))?;
+
+        if outputs.len() == 0 {
+            return Err("FaceMesh model returned 0 outputs; expected at least 1".to_string());
+        }
 
         // FaceMesh ONNX model returns [1, 1, 1, 1404] (468 points * 3 coordinates)
         let (_shape, slice) = outputs[0]
@@ -400,6 +438,13 @@ impl FaceDetectorEngine {
         let inputs = ort::inputs![tensor_value];
         let outputs = self.session.run(inputs).map_err(|e| format!("FaceDetector inference failed: {}", e))?;
 
+        if outputs.len() < 2 {
+            return Err(format!(
+                "FaceDetector model returned {} outputs; expected at least 2",
+                outputs.len()
+            ));
+        }
+
         // UltraFace outputs[0] is `scores` of shape [1, 4420, 2]
         let (_s_shape, scores) = outputs[0]
             .try_extract_tensor::<f32>()
@@ -409,6 +454,14 @@ impl FaceDetectorEngine {
         let (_b_shape, boxes) = outputs[1]
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
+
+        if scores.len() < 4420 * 2 || boxes.len() < 4420 * 4 {
+            return Err(format!(
+                "FaceDetector output size mismatch: scores len={}, boxes len={}",
+                scores.len(),
+                boxes.len()
+            ));
+        }
 
         let mut candidates = Vec::new();
 
