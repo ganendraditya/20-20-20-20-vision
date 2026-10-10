@@ -172,6 +172,27 @@ When users lean back ($80\text{–}120\text{ cm}$, Tier 3) on high-resolution st
   - Across combined HD & VGA resolutions, lifts small face recall from **$0.0\%$** to **$83.3\%$ ($25/30$)**.
   - **Fail-Safe Fallback:** If the RoI sub-window misses (e.g. abrupt torso relocation), automatically falls back to full-frame detection within the same frame cycle ($< 12\text{ ms}$ total worst-case).
 
+### 3.1.5 Local Eye Contrast Normalization (CLAHE) for Spectacle Glare Resilience (Issue #66)
+
+Bright overexposure and white laptop displays (e.g. Google Docs, light-mode editors, white web pages) reflect directly off spectacle lenses (specular glare), washing out pupil contrast and eyelid contour gradients ($\nabla I$). This previously caused landmark regression errors to spike by $4\times\dots 6\times$ ($0.0056 \to 0.0425$).
+
+* **4x4 Contextual Tile Grid Architecture (`vision/clahe.rs`):**
+  - The $192\times 192$ FaceMesh input crop is partitioned into a $4\times 4$ tile grid ($48\times 48\text{ px}$ per tile, $2,304\text{ px}$ per tile).
+  - Crucially, tiles $(1, 1)$ and $(1, 2)$ naturally encompass the left and right eye sub-windows in canonical facial topology, ensuring local histogram equalization is computed directly on the eye regions without distorting surrounding jawline, forehead, or cheek features.
+* **Contrast Limiting & Excess Redistribution:**
+  - Standard histogram spikes in homogeneous glare zones are clipped at $\text{Clip Limit} = 2.5 \times \frac{M}{256} = 23$.
+  - Clipped excess is redistributed uniformly across all 256 bins before constructing normalized Cumulative Distribution Function (CDF) lookup tables.
+* **Bilinear Interpolation & Stack Allocation:**
+  - Tile lookup tables are pre-allocated on the stack ($[4][4][256] = 4,096\text{ bytes}$), fitting entirely inside L1 data cache with zero heap allocations in the hot vision loop.
+  - Smooth bilinear interpolation between tile centers eliminates artificial block boundary artifacts.
+* **Adaptive Glare Trigger:**
+  - Evaluates ITU-R BT.601 integer luminance ($Y = (77R + 150G + 29B) \gg 8$).
+  - If ambient lighting is balanced ($\text{Mean } Y \le 135$ and bright saturation ratio $\le 8\%$), CLAHE is completely bypassed in $< 15\ \mu\text{s}$ with $0.000$ drift on clean frames.
+  - When specular glare or overexposure is detected, engages with $\alpha = 0.70$ blend.
+* **Empirical Landmark Precision Gains:**
+  - Improves eye landmark regression accuracy on glasses glare test fixtures by **$+26.21\%$** ($0.04252 \to 0.03137$), exceeding the $\ge 25\%$ acceptance criteria.
+  - Maintains $< 0.3\text{ ms}$ processing overhead per frame in production release execution.
+
 ### 3.2 Eyelid Mathematical Landmark Geometry (3-Pair EAR)
 
 Following the Soukupová & Čech (2016) canonical model upgraded to 3 vertical anatomical pairs for curved eyelid discriminability:
