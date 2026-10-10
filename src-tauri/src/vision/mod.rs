@@ -455,9 +455,11 @@ impl FaceDetectorEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("Failed to extract FaceDetector boxes tensor: {}", e))?;
 
-        if scores.len() < 4420 * 2 || boxes.len() < 4420 * 4 {
+        if scores.len() != 4420 * 2 || boxes.len() != 4420 * 4 {
             return Err(format!(
-                "FaceDetector output size mismatch: scores len={}, boxes len={}",
+                "FaceDetector output size mismatch: expected (scores: {}, boxes: {}), got (scores: {}, boxes: {})",
+                4420 * 2,
+                4420 * 4,
                 scores.len(),
                 boxes.len()
             ));

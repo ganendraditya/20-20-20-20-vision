@@ -75,6 +75,14 @@ pub fn apply_clahe_face_192(
     let mean_y = sum_y as f32 / TOTAL_PX as f32;
     let bright_ratio = bright_count as f32 / TOTAL_PX as f32;
 
+    if !config.glare_threshold_mean.is_finite()
+        || !config.glare_threshold_bright_ratio.is_finite()
+        || !config.blend_alpha.is_finite()
+        || !config.clip_limit.is_finite()
+    {
+        return false;
+    }
+
     // Adaptive Glare Detection:
     // If the frame is under balanced/dim ambient lighting with zero specular washout,
     // bypass CLAHE to guarantee 0 drift on clean frames and minimal CPU duty cycle (< 15 µs).
@@ -84,11 +92,7 @@ pub fn apply_clahe_face_192(
         return false;
     }
 
-    let active_alpha = if config.blend_alpha.is_nan() {
-        0.0
-    } else {
-        config.blend_alpha.clamp(0.0, 1.0)
-    };
+    let active_alpha = config.blend_alpha.clamp(0.0, 1.0);
 
     // 2. Build tile histograms & Cumulative Distribution Function (CDF) lookup tables
     // Stack-allocated table: [4][4][256] = 4,096 bytes (fits directly inside L1 data cache)
@@ -216,11 +220,19 @@ mod tests {
     }
 
     #[test]
-    fn test_glare_overexposure_trigger() {
+    fn test_glare_overexposure_trigger_and_transforms_pixels() {
         // Overexposed screen glare frame (mean ~170, many pixels >= 215)
         let mut buf = [170u8; FACE_CROP_DIM * FACE_CROP_DIM * 3];
+        // Introduce non-uniform glare gradient
+        for i in 0..FACE_CROP_DIM * FACE_CROP_DIM {
+            buf[i * 3] = ((i % 100) as u8).saturating_add(155);
+            buf[i * 3 + 1] = ((i % 100) as u8).saturating_add(155);
+            buf[i * 3 + 2] = ((i % 100) as u8).saturating_add(155);
+        }
+        let original = buf;
         let config = ClaheConfig::default();
         let was_applied = apply_clahe_face_192(&mut buf, &config);
         assert!(was_applied, "Overexposed glare frame must trigger CLAHE");
+        assert_ne!(buf, original, "Equalization must transform pixel values");
     }
 }
