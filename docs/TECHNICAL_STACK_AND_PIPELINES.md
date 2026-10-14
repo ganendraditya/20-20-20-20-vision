@@ -77,6 +77,8 @@
 | **Native Notifications** | Platform Subprocess | `osascript` (macOS) / Shell | Native desktop banner alerts without third-party daemon background daemons. |
 | **Audio Synthesizer** | In-Memory PCM / WAV | 44.1 kHz Sine Oscillator | Synthesizes pleasant sine bell chimes directly in memory, zero bundled audio MP3 assets needed. |
 
+At startup, ONNX models are resolved by checking `models/<name>` from the current working directory, `../models/<name>`, `~/.local/share/420vision/models/<name>`, then `<data_dir>/420vision/models/<name>`. The first existing file is loaded; if none exists, the first candidate is returned for a useful load error.
+
 ---
 
 ## 3. Computer Vision & Signal Processing Pipelines

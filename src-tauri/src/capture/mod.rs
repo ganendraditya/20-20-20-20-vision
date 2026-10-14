@@ -90,38 +90,42 @@ impl CameraManager {
     }
 }
 
-/// Locate or fallback FaceMesh model path
-fn get_facemesh_model_path() -> PathBuf {
-    // 1. Check local models directory relative to current working directory
-    let local = PathBuf::from("models/facemesh.onnx");
-    if local.exists() {
-        return local;
+/// Resolve an ONNX model file by name.
+///
+/// Search order (first existing file wins):
+/// 1. `models/<name>` relative to the working directory (`cargo run` / `tauri dev` from repo root)
+/// 2. `../models/<name>` (`tauri dev` runs the binary from `src-tauri/`)
+/// 3. `~/.local/share/420vision/models/<name>` (written by `install.sh`)
+/// 4. `<data_dir>/420vision/models/<name>` (platform default, e.g. Application Support on macOS)
+///
+/// If nothing exists, the first candidate is returned so the caller's error names a real path.
+fn resolve_model_path(name: &str) -> PathBuf {
+    let mut candidates = vec![
+        PathBuf::from("models").join(name),
+        PathBuf::from("../models").join(name),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".local/share/420vision/models").join(name));
     }
-    // 2. Check installed bundle directory
-    if let Some(share) = dirs::data_dir() {
-        let installed = share.join("420vision/models/facemesh.onnx");
-        if installed.exists() {
-            return installed;
-        }
+    if let Some(data) = dirs::data_dir() {
+        candidates.push(data.join("420vision/models").join(name));
     }
-    local
+
+    candidates
+        .iter()
+        .find(|p| p.is_file())
+        .cloned()
+        .unwrap_or_else(|| candidates[0].clone())
 }
 
-/// Locate or fallback FaceDetector model path
+/// Locate FaceMesh model path
+fn get_facemesh_model_path() -> PathBuf {
+    resolve_model_path("facemesh.onnx")
+}
+
+/// Locate FaceDetector model path
 fn get_facedetector_model_path() -> PathBuf {
-    // 1. Check local models directory relative to current working directory
-    let local = PathBuf::from("models/ultraface.onnx");
-    if local.exists() {
-        return local;
-    }
-    // 2. Check installed bundle directory
-    if let Some(share) = dirs::data_dir() {
-        let installed = share.join("420vision/models/ultraface.onnx");
-        if installed.exists() {
-            return installed;
-        }
-    }
-    local
+    resolve_model_path("ultraface.onnx")
 }
 
 // Canonical MediaPipe landmark indices for eye contours and essential face structure
@@ -160,7 +164,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 Some(engine)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] Could not load FaceMesh model ({:?}): {}", model_path, e);
+                eprintln!("[420vision::vision] Could not load FaceMesh model ({:?}): {}. Place it in models/ or run the installer for your OS.", model_path, e);
                 None
             }
         };
@@ -173,7 +177,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 Some(detector)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] Could not load UltraFace detector ({:?}): {}", detector_path, e);
+                eprintln!("[420vision::vision] Could not load UltraFace detector ({:?}): {}. Place it in models/ or run the installer for your OS.", detector_path, e);
                 None
             }
         };
