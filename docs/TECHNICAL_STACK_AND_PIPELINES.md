@@ -79,6 +79,8 @@
 
 At startup, ONNX models are resolved by checking `models/<name>` from the current working directory, `../models/<name>`, `~/.local/share/420vision/models/<name>`, then `<data_dir>/420vision/models/<name>`. The first existing file is loaded; if none exists, the first candidate is returned for a useful load error.
 
+The Tauri application tracks `src-tauri/Cargo.lock` to keep native dependency resolution reproducible, including prerelease ONNX Runtime (`ort`) APIs. CI and release test jobs use `cargo test --locked` so manifest/lockfile drift fails explicitly instead of silently selecting a newer incompatible prerelease.
+
 ---
 
 ## 3. Computer Vision & Signal Processing Pipelines
