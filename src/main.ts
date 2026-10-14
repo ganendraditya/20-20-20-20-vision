@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+if (import.meta.env.DEV) {
+  document.documentElement.classList.add("developer-branding");
+}
+
 interface AppStatus {
   is_running: boolean;
   is_camera_active: boolean;
