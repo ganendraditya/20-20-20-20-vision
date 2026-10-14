@@ -214,7 +214,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 (
                     state.status.is_running,
                     state.selected_camera_index,
-                    state.is_sandbox_viewing,
+                    state.sandbox_view.is_viewing(),
                     state.config.ear_threshold,
                     state.config.keep_awake_enabled,
                 )

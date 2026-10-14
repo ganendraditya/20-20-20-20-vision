@@ -486,7 +486,7 @@ async function listenToCameraFrames() {
       }
 
       if (triggerText) {
-        triggerText.textContent = "Trigger: Δ 35%";
+        triggerText.textContent = "Trigger: Adaptive";
       }
 
       // 2. Face detection badge

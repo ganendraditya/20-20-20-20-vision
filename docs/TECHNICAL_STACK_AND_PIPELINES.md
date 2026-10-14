@@ -245,8 +245,8 @@ $$\text{EMA}_t = \alpha \cdot \text{EAR}_t + (1 - \alpha) \cdot \text{EMA}_{t-1}
 ```
 
 1. **Duration Window Validation:**
-   * Closure duration must satisfy: $80\text{ ms} \le \Delta t \le 800\text{ ms}$.
-   * $\Delta t < 80\text{ ms}$: Discarded as single-frame camera sensor glitch.
+   * Closure duration must satisfy: $50\text{ ms} \le \Delta t \le 800\text{ ms}$.
+   * $\Delta t < 50\text{ ms}$: Discarded as a short sensor fluctuation.
    * $\Delta t \ge 1000\text{ ms}$: Flags `is_resting` (eyes closed in thought/nap); pauses stare warning timer.
 2. **Asynchronous Left-Right Pairing Window ($1.0\text{s}$):**
    * Real human blinks exhibit natural micro-desynchronization between eyes.
@@ -263,9 +263,10 @@ To protect users experiencing unilateral swelling (styes, blepharitis, ptosis) o
   - While eye is closed ($\text{EAR} < \text{Threshold}$), baseline updates freeze.
 * **Proportional Relative-Drop Closure ($\ge 20\%$ Drop):**
   $$\text{Threshold}_{\text{eye}} = \min(\text{Threshold}_{\text{config}}, B_{\text{eye}} \times (1.0 - 0.20))$$
-  - A swollen eye ($B_R \approx 0.20$) dynamically adjusts its threshold to $0.130$, preventing it from being locked out as permanently closed by the default $0.22$ cutoff.
+  - With $B_R \approx 0.20$ and the default $0.22$ configured cutoff, the effective threshold is $\min(0.22, 0.16) = 0.16$.
+  - The Camera Test HUD labels this `Adaptive` because the effective threshold depends on both the per-eye baseline and configured cutoff.
 * **Monocular Fallback Mode:**
-  - If exactly one eye is continuously closed for $\ge 60.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
+  - If exactly one eye is continuously closed for $\ge 5.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
   - Reopening the occluded eye seamlessly restores Binocular Mode.
 
 ### 3.4.2 Velocity Slope Sampling for Low-FPS (10–12 FPS) Micro-Blinks (Issue #64)
@@ -274,8 +275,8 @@ On low-end webcams or low-light conditions running at $\le 12.5\text{ FPS}$ ($\D
 * **Temporal Derivative Tracking:**
   - Calculates per-eye velocity: $v_t = \frac{\text{EAR}_t - \text{EAR}_{t-1}}{\Delta t}$.
   - Detects rapid closing descent ($v_t \le -0.40\text{ s}^{-1}$ with drop $\ge 20\%$ below baseline) followed by immediate elastic rebound ($v_{t+1} \ge +0.25\text{ s}^{-1}$ returning towards $\ge 75\%$ baseline).
-* **Single-Frame Low-FPS Adaptive Window:**
-  - At $\le 12\text{ FPS}$ ($\Delta t \ge 75\text{ ms}$), 1-frame deep closures ($80\text{--}120\text{ ms}$) are admitted into valid blinks rather than being rejected by the high-FPS 2-frame noise guard.
+* **Single-Sample Temporal Guard:**
+  - One closed sample is sufficient at any frame rate; a blink is counted only when the measured closure duration is between $50\text{ ms}$ and $800\text{ ms}$. Low-FPS velocity sampling supplements this path.
 * **Downward Reading Gaze Immunity:**
   - When head pitch is tilted down toward desk/keyboard ($\text{Pitch} < -15^\circ$), blink triggers and velocity spikes are suppressed, preventing false positive blink counts during reading.
 
@@ -390,6 +391,8 @@ interface CameraFrameDto {
 ```
 
 `face_mesh_landmarks` is an additive sandbox-only field with a Serde default for older payloads. The frontend renders the official MediaPipe 468-point tessellation (1,322 unique edges) as a low-opacity wireframe, then overlays lighter feature contours and a cyan/red eye outline. The static topology and its Apache-2.0 attribution live in `src/faceMeshTopology.ts`. The daemon sends these normalized points only while the sandbox tab is viewed; the inference model, detector, and production monitoring path are unchanged.
+
+Sandbox frame emission is gated by both Camera Test tab selection and main-window focus. Losing focus stops preview work; regaining focus resumes it only when Camera Test remains selected.
 
 ---
 

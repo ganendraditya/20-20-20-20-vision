@@ -340,8 +340,7 @@ impl BlinkDetector {
         } else if self.left_is_closed {
             if let Some(start) = self.left_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                // Adaptive temporal guard: at low FPS (<= 12 FPS), accept 1-frame deep closure (80-120ms);
-                // at normal FPS (15-30 FPS), require at least 2 consecutive frames under closure.
+                // A single closed sample is accepted only when the measured closure lasts 50-800ms.
                 if self.left_closed_frames >= min_closed_frames && (0.05..=0.8).contains(&duration) && !is_downward_reading_gaze {
                     left_blink_completed = true;
                 }
