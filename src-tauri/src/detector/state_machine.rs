@@ -1,7 +1,7 @@
+use crate::detector::EarCalculator;
+use crate::vision::Landmark3D;
 use std::collections::VecDeque;
 use std::time::Instant;
-use crate::vision::Landmark3D;
-use crate::detector::EarCalculator;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlinkEvent {
@@ -16,9 +16,80 @@ pub struct BlinkEvent {
     pub avg_ear: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EyeBlinkStatus {
+    Open,
+    ClosurePending,
+    CandidateCompleted,
+    RejectedTooShort,
+    RejectedTooLong,
+    RejectedInsufficientSamples,
+    RejectedDownwardGaze,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlinkDecision {
+    FaceUnavailable,
+    LookingAway,
+    NoClosureCandidate,
+    ClosurePending,
+    AwaitingOtherEye,
+    CountedBinocular,
+    CountedMonocular,
+}
+
+/// Per-update detector evidence for opt-in troubleshooting; it does not affect decisions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlinkDiagnostics {
+    pub frame_interval_ms: f32,
+    pub raw_left_ear: Option<f32>,
+    pub raw_right_ear: Option<f32>,
+    pub smoothed_left_ear: Option<f32>,
+    pub smoothed_right_ear: Option<f32>,
+    pub baseline_left: Option<f32>,
+    pub baseline_right: Option<f32>,
+    pub threshold_left: Option<f32>,
+    pub threshold_right: Option<f32>,
+    pub left_status: EyeBlinkStatus,
+    pub right_status: EyeBlinkStatus,
+    pub left_closure_ms: f32,
+    pub right_closure_ms: f32,
+    pub is_facing_camera: bool,
+    pub is_downward_reading_gaze: bool,
+    pub is_resting: bool,
+    pub is_monocular: bool,
+    pub decision: BlinkDecision,
+}
+
+impl Default for BlinkDiagnostics {
+    fn default() -> Self {
+        Self {
+            frame_interval_ms: 0.0,
+            raw_left_ear: None,
+            raw_right_ear: None,
+            smoothed_left_ear: None,
+            smoothed_right_ear: None,
+            baseline_left: None,
+            baseline_right: None,
+            threshold_left: None,
+            threshold_right: None,
+            left_status: EyeBlinkStatus::Open,
+            right_status: EyeBlinkStatus::Open,
+            left_closure_ms: 0.0,
+            right_closure_ms: 0.0,
+            is_facing_camera: false,
+            is_downward_reading_gaze: false,
+            is_resting: false,
+            is_monocular: false,
+            decision: BlinkDecision::FaceUnavailable,
+        }
+    }
+}
+
 pub struct BlinkDetector {
     ear_calculator: EarCalculator,
     threshold: f32,
+    experimental_relative_blink_drop: Option<f32>,
     stare_limit_secs: f32,
 
     // Dynamic independent baseline tracking per eye (Issue #75)
@@ -33,19 +104,25 @@ pub struct BlinkDetector {
     left_closed_frames: u32,
     left_is_closed: bool,
     left_closure_start: Option<Instant>,
+    left_reopen_start: Option<Instant>,
+    left_reopen_frames: u32,
     last_left_blink_at: Option<Instant>,
 
     right_closed_frames: u32,
     right_is_closed: bool,
     right_closure_start: Option<Instant>,
+    right_reopen_start: Option<Instant>,
+    right_reopen_frames: u32,
     last_right_blink_at: Option<Instant>,
 
     // Velocity slope sampling for low-FPS webcams (Issue #64)
     last_frame_instant: Option<Instant>,
     prev_left_ear: Option<f32>,
     prev_right_ear: Option<f32>,
-    left_velocity_spike: bool,
-    right_velocity_spike: bool,
+    left_velocity_spike_since: Option<Instant>,
+    right_velocity_spike_since: Option<Instant>,
+    left_velocity_rebound_frames: u32,
+    right_velocity_rebound_frames: u32,
 
     // Stare tracking
     last_open_instant: Instant,
@@ -54,10 +131,21 @@ pub struct BlinkDetector {
     // Rolling BPM tracking (timestamps of completed blinks within last 60s)
     blink_timestamps: VecDeque<Instant>,
     total_blinks: u32,
+    diagnostics: BlinkDiagnostics,
 }
 
-/// Relative drop from resting open baseline required to recognize eyelid closure (35% drop)
+/// Relative-drop parameter used by debug-only experimental detector variants (35% drop)
 pub const RELATIVE_BLINK_DROP: f32 = 0.35;
+
+/// Keep the effective closure cutoff below the open-eye baseline while letting
+/// the calibrated absolute threshold determine the per-eye cutoff.
+const MAX_CLOSURE_CUTOFF_RATIO: f32 = 0.90;
+
+/// Require a stable reopening before completing a closure candidate.
+const REOPEN_CONFIRMATION_SAMPLES: u32 = 2;
+
+/// Expire low-FPS descent candidates that do not recover within the blink window.
+const VELOCITY_CANDIDATE_MAX_SECS: f32 = 0.8;
 
 /// Floor below which baseline EAR will not adapt downwards (protects severely hooded or swollen eyes)
 pub const MIN_BASELINE_EAR: f32 = 0.12;
@@ -74,10 +162,35 @@ impl BlinkDetector {
     }
 
     pub fn with_alpha(threshold: f32, stare_limit_secs: f32, alpha: f32) -> Self {
+        Self::with_alpha_and_relative_drop(threshold, stare_limit_secs, alpha, None)
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn with_experimental_parameters(
+        threshold: f32,
+        stare_limit_secs: f32,
+        alpha: f32,
+        relative_blink_drop: f32,
+    ) -> Self {
+        Self::with_alpha_and_relative_drop(
+            threshold,
+            stare_limit_secs,
+            alpha,
+            Some(relative_blink_drop),
+        )
+    }
+
+    fn with_alpha_and_relative_drop(
+        threshold: f32,
+        stare_limit_secs: f32,
+        alpha: f32,
+        experimental_relative_blink_drop: Option<f32>,
+    ) -> Self {
         let now = Instant::now();
         Self {
             ear_calculator: EarCalculator::new(alpha),
             threshold,
+            experimental_relative_blink_drop,
             stare_limit_secs,
             baseline_left: None,
             baseline_right: None,
@@ -86,20 +199,27 @@ impl BlinkDetector {
             left_closed_frames: 0,
             left_is_closed: false,
             left_closure_start: None,
+            left_reopen_start: None,
+            left_reopen_frames: 0,
             last_left_blink_at: None,
             right_closed_frames: 0,
             right_is_closed: false,
             right_closure_start: None,
+            right_reopen_start: None,
+            right_reopen_frames: 0,
             last_right_blink_at: None,
             last_frame_instant: None,
             prev_left_ear: None,
             prev_right_ear: None,
-            left_velocity_spike: false,
-            right_velocity_spike: false,
+            left_velocity_spike_since: None,
+            right_velocity_spike_since: None,
+            left_velocity_rebound_frames: 0,
+            right_velocity_rebound_frames: 0,
             last_open_instant: now,
             stare_warning_issued: false,
             blink_timestamps: VecDeque::with_capacity(100),
             total_blinks: 0,
+            diagnostics: BlinkDiagnostics::default(),
         }
     }
 
@@ -127,6 +247,19 @@ impl BlinkDetector {
         self.total_blinks
     }
 
+    /// Snapshot the latest detector evidence for debug logging.
+    pub fn diagnostics(&self) -> BlinkDiagnostics {
+        self.diagnostics
+    }
+
+    fn closure_cutoff(&self, baseline: f32) -> f32 {
+        let relative_cutoff = self
+            .experimental_relative_blink_drop
+            .map(|drop| baseline * (1.0 - drop))
+            .unwrap_or(baseline * MAX_CLOSURE_CUTOFF_RATIO);
+        self.threshold.min(relative_cutoff)
+    }
+
     /// Reset internal state, pairing buffers, and adaptive baselines
     pub fn reset(&mut self, now: Instant) {
         self.baseline_left = None;
@@ -135,20 +268,27 @@ impl BlinkDetector {
         self.left_closed_frames = 0;
         self.left_is_closed = false;
         self.left_closure_start = None;
+        self.left_reopen_start = None;
+        self.left_reopen_frames = 0;
         self.last_left_blink_at = None;
         self.right_closed_frames = 0;
         self.right_is_closed = false;
         self.right_closure_start = None;
+        self.right_reopen_start = None;
+        self.right_reopen_frames = 0;
         self.last_right_blink_at = None;
         self.last_frame_instant = None;
         self.prev_left_ear = None;
         self.prev_right_ear = None;
-        self.left_velocity_spike = false;
-        self.right_velocity_spike = false;
+        self.left_velocity_spike_since = None;
+        self.right_velocity_spike_since = None;
+        self.left_velocity_rebound_frames = 0;
+        self.right_velocity_rebound_frames = 0;
         self.last_open_instant = now;
         self.stare_warning_issued = false;
         self.blink_timestamps.clear();
         self.total_blinks = 0;
+        self.diagnostics = BlinkDiagnostics::default();
     }
 
     /// Process a frame with 468 landmarks and return the blink / stare detection results
@@ -174,19 +314,34 @@ impl BlinkDetector {
             Some(metrics) => metrics,
             None => {
                 // If face not detected or looking away, pause stare warning timer and clear active closure states
+                let decision = if is_facing {
+                    BlinkDecision::FaceUnavailable
+                } else {
+                    BlinkDecision::LookingAway
+                };
                 self.left_is_closed = false;
                 self.left_closure_start = None;
                 self.left_closed_frames = 0;
+                self.left_reopen_start = None;
+                self.left_reopen_frames = 0;
                 self.right_is_closed = false;
                 self.right_closure_start = None;
                 self.right_closed_frames = 0;
+                self.right_reopen_start = None;
+                self.right_reopen_frames = 0;
                 self.last_frame_instant = None;
                 self.prev_left_ear = None;
                 self.prev_right_ear = None;
-                self.left_velocity_spike = false;
-                self.right_velocity_spike = false;
+                self.left_velocity_spike_since = None;
+                self.right_velocity_spike_since = None;
+                self.left_velocity_rebound_frames = 0;
+                self.right_velocity_rebound_frames = 0;
                 self.last_open_instant = now;
                 self.stare_warning_issued = false;
+                self.diagnostics = BlinkDiagnostics {
+                    decision,
+                    ..BlinkDiagnostics::default()
+                };
                 return BlinkEvent {
                     is_blink: false,
                     is_resting: false,
@@ -207,10 +362,9 @@ impl BlinkDetector {
             Some(mut b) => {
                 if !self.left_is_closed {
                     let e = ear_metrics.smoothed_left_ear;
-                    let thresh = b * (1.0 - RELATIVE_BLINK_DROP);
                     if e > b {
                         b = (b + (e - b) * 0.35).min(MAX_BASELINE_EAR);
-                    } else if e >= thresh {
+                    } else if e >= b * MAX_CLOSURE_CUTOFF_RATIO {
                         b = (b - (b - e) * 0.005).max(MIN_BASELINE_EAR);
                     }
                 }
@@ -228,10 +382,9 @@ impl BlinkDetector {
             Some(mut b) => {
                 if !self.right_is_closed {
                     let e = ear_metrics.smoothed_right_ear;
-                    let thresh = b * (1.0 - RELATIVE_BLINK_DROP);
                     if e > b {
                         b = (b + (e - b) * 0.35).min(MAX_BASELINE_EAR);
-                    } else if e >= thresh {
+                    } else if e >= b * MAX_CLOSURE_CUTOFF_RATIO {
                         b = (b - (b - e) * 0.005).max(MIN_BASELINE_EAR);
                     }
                 }
@@ -245,9 +398,13 @@ impl BlinkDetector {
             }
         };
 
-        // Proportional relative-drop threshold capped at configured/calibrated ceiling
-        let thresh_left = (b_left * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
-        let thresh_right = (b_right * (1.0 - RELATIVE_BLINK_DROP)).min(self.threshold);
+        // Calibrated absolute cutoff, capped at 90% of the open-eye baseline.
+        let thresh_left = self.closure_cutoff(b_left);
+        let thresh_right = self.closure_cutoff(b_right);
+        let reopen_thresh_left = (b_left + thresh_left) * 0.5;
+        let reopen_thresh_right = (b_right + thresh_right) * 0.5;
+        let left_eye_closed = ear_metrics.smoothed_left_ear < thresh_left;
+        let right_eye_closed = ear_metrics.smoothed_right_ear < thresh_right;
 
         let dt = match self.last_frame_instant {
             Some(prev) => now.checked_duration_since(prev).map(|d| d.as_secs_f32()).unwrap_or(0.0),
@@ -266,52 +423,105 @@ impl BlinkDetector {
 
         if is_low_fps && !is_downward_reading_gaze && dt > 0.001 {
             // Check left eye velocity slope
-            if let Some(prev_l) = self.prev_left_ear {
+            if left_eye_closed || self.left_is_closed {
+                // Static closure owns duration validation once its state has started.
+                self.left_velocity_spike_since = None;
+                self.left_velocity_rebound_frames = 0;
+            } else if let Some(prev_l) = self.prev_left_ear {
                 let delta_l = cur_left_ear - prev_l;
                 let vel_l = delta_l / dt;
                 let drop_ratio = (b_left - cur_left_ear) / b_left;
 
-                // Step 1: Detect rapid descent (at least 20% drop below baseline, velocity <= -0.40 /s)
+                // Start a candidate on a rapid descent; retain it through a sampled plateau.
                 if drop_ratio >= 0.20 && vel_l <= -0.40 {
-                    self.left_velocity_spike = true;
-                } else if self.left_velocity_spike {
-                    // Step 2: Detect rapid rebound recovery (velocity >= +0.25 /s, returning towards baseline)
-                    if vel_l >= 0.25 && cur_left_ear >= b_left * 0.75 {
-                        left_velocity_blink = true;
+                    self.left_velocity_spike_since.get_or_insert(now);
+                    self.left_velocity_rebound_frames = 0;
+                } else if let Some(started) = self.left_velocity_spike_since {
+                    let age = now
+                        .checked_duration_since(started)
+                        .map(|d| d.as_secs_f32())
+                        .unwrap_or(0.0);
+                    if age > VELOCITY_CANDIDATE_MAX_SECS {
+                        self.left_velocity_spike_since = None;
+                        self.left_velocity_rebound_frames = 0;
+                    } else if ear_metrics.left_ear >= reopen_thresh_left {
+                        self.left_velocity_rebound_frames += 1;
+                    } else {
+                        self.left_velocity_rebound_frames = 0;
                     }
-                    self.left_velocity_spike = false;
+                    if self.left_velocity_rebound_frames >= REOPEN_CONFIRMATION_SAMPLES
+                        && cur_left_ear >= reopen_thresh_left
+                    {
+                        left_velocity_blink = true;
+                        self.left_velocity_spike_since = None;
+                        self.left_velocity_rebound_frames = 0;
+                    }
                 }
             }
 
             // Check right eye velocity slope
-            if let Some(prev_r) = self.prev_right_ear {
+            if right_eye_closed || self.right_is_closed {
+                self.right_velocity_spike_since = None;
+                self.right_velocity_rebound_frames = 0;
+            } else if let Some(prev_r) = self.prev_right_ear {
                 let delta_r = cur_right_ear - prev_r;
                 let vel_r = delta_r / dt;
                 let drop_ratio = (b_right - cur_right_ear) / b_right;
 
                 if drop_ratio >= 0.20 && vel_r <= -0.40 {
-                    self.right_velocity_spike = true;
-                } else if self.right_velocity_spike {
-                    if vel_r >= 0.25 && cur_right_ear >= b_right * 0.75 {
-                        right_velocity_blink = true;
+                    self.right_velocity_spike_since.get_or_insert(now);
+                    self.right_velocity_rebound_frames = 0;
+                } else if let Some(started) = self.right_velocity_spike_since {
+                    let age = now
+                        .checked_duration_since(started)
+                        .map(|d| d.as_secs_f32())
+                        .unwrap_or(0.0);
+                    if age > VELOCITY_CANDIDATE_MAX_SECS {
+                        self.right_velocity_spike_since = None;
+                        self.right_velocity_rebound_frames = 0;
+                    } else if ear_metrics.right_ear >= reopen_thresh_right {
+                        self.right_velocity_rebound_frames += 1;
+                    } else {
+                        self.right_velocity_rebound_frames = 0;
                     }
-                    self.right_velocity_spike = false;
+                    if self.right_velocity_rebound_frames >= REOPEN_CONFIRMATION_SAMPLES
+                        && cur_right_ear >= reopen_thresh_right
+                    {
+                        right_velocity_blink = true;
+                        self.right_velocity_spike_since = None;
+                        self.right_velocity_rebound_frames = 0;
+                    }
                 }
             }
         } else {
-            self.left_velocity_spike = false;
-            self.right_velocity_spike = false;
+            self.left_velocity_spike_since = None;
+            self.right_velocity_spike_since = None;
+            self.left_velocity_rebound_frames = 0;
+            self.right_velocity_rebound_frames = 0;
         }
 
         self.prev_left_ear = Some(cur_left_ear);
         self.prev_right_ear = Some(cur_right_ear);
 
-        let left_eye_closed = ear_metrics.smoothed_left_ear < thresh_left;
-        let right_eye_closed = ear_metrics.smoothed_right_ear < thresh_right;
-
         let mut left_blink_completed = false;
         let mut right_blink_completed = false;
         let mut is_resting_event = false;
+        let mut left_status =
+            if left_eye_closed || self.left_is_closed || self.left_velocity_spike_since.is_some() {
+                EyeBlinkStatus::ClosurePending
+            } else {
+                EyeBlinkStatus::Open
+            };
+        let mut right_status = if right_eye_closed
+            || self.right_is_closed
+            || self.right_velocity_spike_since.is_some()
+        {
+            EyeBlinkStatus::ClosurePending
+        } else {
+            EyeBlinkStatus::Open
+        };
+        let mut left_closure_secs = 0.0f32;
+        let mut right_closure_secs = 0.0f32;
 
         let min_closed_frames = if is_low_fps { 1 } else { 2 };
 
@@ -324,35 +534,90 @@ impl BlinkDetector {
             } else {
                 self.left_closed_frames += 1;
             }
+            if ear_metrics.left_ear >= reopen_thresh_left {
+                self.left_reopen_start.get_or_insert(now);
+            } else {
+                self.left_reopen_start = None;
+                self.left_reopen_frames = 0;
+            }
 
             if let Some(start) = self.left_closure_start {
-                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
+                let closure_end = self.left_reopen_start.unwrap_or(now);
+                let duration = closure_end
+                    .checked_duration_since(start)
+                    .map(|d| d.as_secs_f32())
+                    .unwrap_or(0.0);
+                left_closure_secs = duration;
                 if duration >= 1.0 {
                     is_resting_event = true;
                 }
             }
         } else if self.left_is_closed {
             if let Some(start) = self.left_closure_start {
-                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                // Adaptive temporal guard: at low FPS (<= 12 FPS), accept 1-frame deep closure (80-120ms);
-                // at normal FPS (15-30 FPS), require at least 2 consecutive frames under closure.
-                if self.left_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
-                    left_blink_completed = true;
+                if ear_metrics.left_ear >= reopen_thresh_left {
+                    self.left_reopen_start.get_or_insert(now);
+                } else {
+                    self.left_reopen_start = None;
+                    self.left_reopen_frames = 0;
+                }
+
+                if ear_metrics.left_ear >= reopen_thresh_left
+                    && ear_metrics.smoothed_left_ear >= reopen_thresh_left
+                {
+                    self.left_reopen_frames += 1;
+                } else {
+                    self.left_reopen_frames = 0;
+                }
+
+                let closure_end = self.left_reopen_start.unwrap_or(now);
+                let duration = closure_end
+                    .checked_duration_since(start)
+                    .map(|d| d.as_secs_f32())
+                    .unwrap_or(0.0);
+                left_closure_secs = duration;
+
+                if self.left_reopen_frames >= REOPEN_CONFIRMATION_SAMPLES {
+                    if self.left_closed_frames >= min_closed_frames
+                        && (0.08..=0.8).contains(&duration)
+                        && !is_downward_reading_gaze
+                    {
+                        left_blink_completed = true;
+                        left_status = EyeBlinkStatus::CandidateCompleted;
+                    } else if is_downward_reading_gaze {
+                        left_status = EyeBlinkStatus::RejectedDownwardGaze;
+                    } else if self.left_closed_frames < min_closed_frames {
+                        left_status = EyeBlinkStatus::RejectedInsufficientSamples;
+                    } else if duration < 0.08 {
+                        left_status = EyeBlinkStatus::RejectedTooShort;
+                    } else {
+                        left_status = EyeBlinkStatus::RejectedTooLong;
+                    }
+
+                    self.left_is_closed = false;
+                    self.left_closure_start = None;
+                    self.left_closed_frames = 0;
+                    self.left_reopen_start = None;
+                    self.left_reopen_frames = 0;
+                    self.last_open_instant = now;
+                    self.stare_warning_issued = false;
+                } else {
+                    left_status = EyeBlinkStatus::ClosurePending;
+                    if duration >= 1.0 {
+                        is_resting_event = true;
+                    }
                 }
             }
-            self.left_is_closed = false;
-            self.left_closure_start = None;
-            self.left_closed_frames = 0;
-            self.last_open_instant = now;
-            self.stare_warning_issued = false;
         }
 
         if left_velocity_blink && !is_downward_reading_gaze {
             left_blink_completed = true;
+            left_status = EyeBlinkStatus::CandidateCompleted;
             // Suppress standard closure state to prevent double-counting on reopen
             self.left_is_closed = false;
             self.left_closure_start = None;
             self.left_closed_frames = 0;
+            self.left_reopen_start = None;
+            self.left_reopen_frames = 0;
         }
 
         // --- Process Right Eye ---
@@ -364,43 +629,114 @@ impl BlinkDetector {
             } else {
                 self.right_closed_frames += 1;
             }
+            if ear_metrics.right_ear >= reopen_thresh_right {
+                self.right_reopen_start.get_or_insert(now);
+            } else {
+                self.right_reopen_start = None;
+                self.right_reopen_frames = 0;
+            }
 
             if let Some(start) = self.right_closure_start {
-                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
+                let closure_end = self.right_reopen_start.unwrap_or(now);
+                let duration = closure_end
+                    .checked_duration_since(start)
+                    .map(|d| d.as_secs_f32())
+                    .unwrap_or(0.0);
+                right_closure_secs = duration;
                 if duration >= 1.0 {
                     is_resting_event = true;
                 }
             }
         } else if self.right_is_closed {
             if let Some(start) = self.right_closure_start {
-                let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                if self.right_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
-                    right_blink_completed = true;
+                if ear_metrics.right_ear >= reopen_thresh_right {
+                    self.right_reopen_start.get_or_insert(now);
+                } else {
+                    self.right_reopen_start = None;
+                    self.right_reopen_frames = 0;
+                }
+
+                if ear_metrics.right_ear >= reopen_thresh_right
+                    && ear_metrics.smoothed_right_ear >= reopen_thresh_right
+                {
+                    self.right_reopen_frames += 1;
+                } else {
+                    self.right_reopen_frames = 0;
+                }
+
+                let closure_end = self.right_reopen_start.unwrap_or(now);
+                let duration = closure_end
+                    .checked_duration_since(start)
+                    .map(|d| d.as_secs_f32())
+                    .unwrap_or(0.0);
+                right_closure_secs = duration;
+
+                if self.right_reopen_frames >= REOPEN_CONFIRMATION_SAMPLES {
+                    if self.right_closed_frames >= min_closed_frames
+                        && (0.08..=0.8).contains(&duration)
+                        && !is_downward_reading_gaze
+                    {
+                        right_blink_completed = true;
+                        right_status = EyeBlinkStatus::CandidateCompleted;
+                    } else if is_downward_reading_gaze {
+                        right_status = EyeBlinkStatus::RejectedDownwardGaze;
+                    } else if self.right_closed_frames < min_closed_frames {
+                        right_status = EyeBlinkStatus::RejectedInsufficientSamples;
+                    } else if duration < 0.08 {
+                        right_status = EyeBlinkStatus::RejectedTooShort;
+                    } else {
+                        right_status = EyeBlinkStatus::RejectedTooLong;
+                    }
+
+                    self.right_is_closed = false;
+                    self.right_closure_start = None;
+                    self.right_closed_frames = 0;
+                    self.right_reopen_start = None;
+                    self.right_reopen_frames = 0;
+                    self.last_open_instant = now;
+                    self.stare_warning_issued = false;
+                } else {
+                    right_status = EyeBlinkStatus::ClosurePending;
+                    if duration >= 1.0 {
+                        is_resting_event = true;
+                    }
                 }
             }
-            self.right_is_closed = false;
-            self.right_closure_start = None;
-            self.right_closed_frames = 0;
-            self.last_open_instant = now;
-            self.stare_warning_issued = false;
         }
 
         if right_velocity_blink && !is_downward_reading_gaze {
             right_blink_completed = true;
+            right_status = EyeBlinkStatus::CandidateCompleted;
             self.right_is_closed = false;
             self.right_closure_start = None;
             self.right_closed_frames = 0;
+            self.right_reopen_start = None;
+            self.right_reopen_frames = 0;
         }
 
         if is_downward_reading_gaze {
             left_blink_completed = false;
             right_blink_completed = false;
+            if self.left_is_closed || left_status == EyeBlinkStatus::CandidateCompleted {
+                left_status = EyeBlinkStatus::RejectedDownwardGaze;
+            }
+            if self.right_is_closed || right_status == EyeBlinkStatus::CandidateCompleted {
+                right_status = EyeBlinkStatus::RejectedDownwardGaze;
+            }
             self.left_closure_start = None;
             self.right_closure_start = None;
             self.left_is_closed = false;
             self.right_is_closed = false;
             self.left_closed_frames = 0;
             self.right_closed_frames = 0;
+            self.left_reopen_start = None;
+            self.right_reopen_start = None;
+            self.left_reopen_frames = 0;
+            self.right_reopen_frames = 0;
+            self.left_velocity_spike_since = None;
+            self.right_velocity_spike_since = None;
+            self.left_velocity_rebound_frames = 0;
+            self.right_velocity_rebound_frames = 0;
             self.last_open_instant = now;
         }
 
@@ -526,6 +862,47 @@ impl BlinkDetector {
         }
 
         self.cleanup_old_blinks(now);
+
+        let decision = if is_blink_event {
+            if self.is_monocular {
+                BlinkDecision::CountedMonocular
+            } else {
+                BlinkDecision::CountedBinocular
+            }
+        } else if left_blink_completed || right_blink_completed {
+            BlinkDecision::AwaitingOtherEye
+        } else if self.last_left_blink_at.is_some() || self.last_right_blink_at.is_some() {
+            BlinkDecision::AwaitingOtherEye
+        } else if self.left_is_closed
+            || self.right_is_closed
+            || self.left_velocity_spike_since.is_some()
+            || self.right_velocity_spike_since.is_some()
+        {
+            BlinkDecision::ClosurePending
+        } else {
+            BlinkDecision::NoClosureCandidate
+        };
+
+        self.diagnostics = BlinkDiagnostics {
+            frame_interval_ms: dt * 1000.0,
+            raw_left_ear: Some(ear_metrics.left_ear),
+            raw_right_ear: Some(ear_metrics.right_ear),
+            smoothed_left_ear: Some(ear_metrics.smoothed_left_ear),
+            smoothed_right_ear: Some(ear_metrics.smoothed_right_ear),
+            baseline_left: Some(b_left),
+            baseline_right: Some(b_right),
+            threshold_left: Some(thresh_left),
+            threshold_right: Some(thresh_right),
+            left_status,
+            right_status,
+            left_closure_ms: left_closure_secs * 1000.0,
+            right_closure_ms: right_closure_secs * 1000.0,
+            is_facing_camera: is_facing,
+            is_downward_reading_gaze,
+            is_resting: is_resting_event,
+            is_monocular: self.is_monocular,
+            decision,
+        };
 
         BlinkEvent {
             is_blink: is_blink_event,

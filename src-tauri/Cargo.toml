@@ -11,6 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
@@ -25,6 +26,14 @@ dirs = "6.0"
 tempfile = "3.10"
 base64 = "0.22"
 image = { version = "0.25", features = ["jpeg"] }
+
+# Keep the interactive camera pipeline fast enough to test real-time behavior
+# in `tauri dev`; optimize the camera pixel-format conversion dependency too.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package.nokhwa-core]
+opt-level = 2
 
 [profile.release]
 codegen-units = 1

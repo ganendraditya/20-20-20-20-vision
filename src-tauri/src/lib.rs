@@ -265,13 +265,32 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+fn present_main_window(app: &AppHandle, source: &str) {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.show() {
+        eprintln!(
+            "[420vision::window] failed to show app from {}: {}",
+            source, error
+        );
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        println!("[420vision::window] presented main window via {}", source);
+    } else {
+        eprintln!("[420vision::window] main window not found via {}", source);
+    }
+}
+
 // ============================================================================
 // Application Entrypoint
 // ============================================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -302,10 +321,7 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "open_window" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            present_main_window(app, "tray menu");
                         }
                         "toggle_pause" => {
                             let state = app.state::<Mutex<AppState>>();
@@ -335,14 +351,18 @@ pub fn run() {
                         } => {
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
+                                let is_visible = window.is_visible().unwrap_or(false);
+                                let is_focused = window.is_focused().unwrap_or(false);
+                                if is_visible && is_focused {
                                     let state = app.state::<Mutex<AppState>>();
                                     let mut state = state.lock().unwrap();
                                     state.is_sandbox_viewing = false;
                                     let _ = window.hide();
+                                    println!(
+                                        "[420vision::window] hidden main window via tray click"
+                                    );
                                 } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
+                                    present_main_window(&app, "tray click");
                                 }
                             }
                         }
@@ -368,6 +388,21 @@ pub fn run() {
             quit_app,
             set_sandbox_viewing
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running 420vision application");
+        .build(tauri::generate_context!())
+        .expect("error while building 420vision application");
+
+    app.run(|app_handle, event| {
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            capture::stop_reference_capture();
+        }
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            println!("[420vision::window] Dock reopen received");
+            present_main_window(app_handle, "Dock reopen");
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = event;
+    });
 }

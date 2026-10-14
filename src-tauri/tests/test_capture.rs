@@ -1,4 +1,6 @@
+use vision420_lib::capture::frame::{BlinkDecisionDto, BlinkDiagnosticsDto};
 use vision420_lib::capture::CameraFrameDto;
+use vision420_lib::detector::state_machine::{BlinkDecision, BlinkDiagnostics, EyeBlinkStatus};
 
 #[test]
 fn test_camera_frame_dto_serialization() {
@@ -11,6 +13,7 @@ fn test_camera_frame_dto_serialization() {
         avg_ear: 0.285,
         is_blinking: false,
         total_blinks: 12,
+        blink_diagnostics: Some(BlinkDiagnostics::default().into()),
         eye_landmarks: vec![],
         face_landmarks: vec![],
         image_data_base64: None,
@@ -31,4 +34,41 @@ fn test_camera_frame_dto_serialization() {
     assert!((deserialized.yaw_deg - 4.2).abs() < 1e-4);
     assert!((deserialized.distance_cm - 55.0).abs() < 1e-4);
     assert!(!deserialized.is_resting_gaze);
+    let diagnostics = deserialized.blink_diagnostics.unwrap();
+    assert_eq!(diagnostics.version, 1);
+    assert_eq!(diagnostics.decision, BlinkDecisionDto::FaceUnavailable);
+    assert!(diagnostics.smoothed_left_ear.is_none());
+
+    // Existing senders without the additive feedback field remain readable.
+    let mut legacy = serde_json::to_value(&dto).unwrap();
+    legacy.as_object_mut().unwrap().remove("blink_diagnostics");
+    let legacy: CameraFrameDto = serde_json::from_value(legacy).unwrap();
+    assert!(legacy.blink_diagnostics.is_none());
+}
+
+#[test]
+fn blink_feedback_preserves_rejection_evidence() {
+    let diagnostics = BlinkDiagnostics {
+        decision: BlinkDecision::AwaitingOtherEye,
+        left_status: EyeBlinkStatus::RejectedTooLong,
+        right_status: EyeBlinkStatus::CandidateCompleted,
+        smoothed_left_ear: Some(0.24),
+        smoothed_right_ear: Some(0.23),
+        threshold_left: Some(0.195),
+        threshold_right: Some(0.19),
+        left_closure_ms: 950.0,
+        right_closure_ms: 200.0,
+        ..BlinkDiagnostics::default()
+    };
+    let dto = BlinkDiagnosticsDto::from(diagnostics);
+    let json = serde_json::to_value(dto).unwrap();
+    assert_eq!(json["version"], 1);
+    assert_eq!(json["decision"], "awaiting_other_eye");
+    assert_eq!(json["left_status"], "rejected_too_long");
+    assert_eq!(json["right_status"], "candidate_completed");
+    assert_eq!(json["left_closure_ms"], 950.0);
+    assert_eq!(json["right_closure_ms"], 200.0);
+    let roundtrip: BlinkDiagnosticsDto = serde_json::from_value(json).unwrap();
+    assert!((roundtrip.threshold_left.unwrap() - 0.195).abs() < 1e-4);
+    assert!((roundtrip.smoothed_right_ear.unwrap() - 0.23).abs() < 1e-4);
 }

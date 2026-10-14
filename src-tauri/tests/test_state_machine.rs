@@ -31,6 +31,37 @@ fn create_synthetic_landmarks(eye_height: f32, eye_width: f32) -> Vec<Landmark3D
     landmarks
 }
 
+fn settle_open_frames(
+    detector: &mut BlinkDetector,
+    open_landmarks: &[Landmark3D],
+    now: &mut Instant,
+    frame_dt_ms: u64,
+    frame_count: usize,
+) -> vision420_lib::detector::BlinkEvent {
+    let mut event = detector.update(open_landmarks, *now);
+    *now += Duration::from_millis(frame_dt_ms);
+    if event.is_blink {
+        return event;
+    }
+    for _ in 1..frame_count {
+        event = detector.update(open_landmarks, *now);
+        *now += Duration::from_millis(frame_dt_ms);
+        if event.is_blink {
+            return event;
+        }
+    }
+    event
+}
+
+fn settle_open(
+    detector: &mut BlinkDetector,
+    open_landmarks: &[Landmark3D],
+    now: &mut Instant,
+    frame_dt_ms: u64,
+) -> vision420_lib::detector::BlinkEvent {
+    settle_open_frames(detector, open_landmarks, now, frame_dt_ms, 8)
+}
+
 #[test]
 fn test_blink_lifecycle_and_stare_warning() {
     let mut detector = BlinkDetector::new(0.25, 2.0); // 2.0s stare limit for fast testing
@@ -56,7 +87,7 @@ fn test_blink_lifecycle_and_stare_warning() {
 
     // Frame 4: Eyes reopen -> valid blink completed!
     now += Duration::from_millis(50);
-    let event4 = detector.update(&open_eyes, now);
+    let event4 = settle_open(&mut detector, &open_eyes, &mut now, 50);
     assert!(event4.is_blink);
     assert_eq!(event4.total_blinks, 1);
     assert_eq!(event4.current_bpm, 1.0);
@@ -94,7 +125,7 @@ fn test_prolonged_eye_rest_pauses_stare_warning() {
 
     // Eyes reopen
     now += Duration::from_millis(100);
-    let event_reopen = detector.update(&open_eyes, now);
+    let event_reopen = settle_open_frames(&mut detector, &open_eyes, &mut now, 100, 4);
     assert!(!event_reopen.is_blink, "Prolonged rest reopening must not count as a blink");
     assert_eq!(event_reopen.total_blinks, 0);
     assert!(!event_reopen.stare_warning);
@@ -148,7 +179,7 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     now += Duration::from_millis(100);
     detector.update(&left_wink, now);
     now += Duration::from_millis(50);
-    let evt_reopen1 = detector.update(&both_open, now);
+    let evt_reopen1 = settle_open(&mut detector, &both_open, &mut now, 50);
     assert!(!evt_reopen1.is_blink);
     // Advance past the 1.0s pairing window
     now += Duration::from_millis(1100);
@@ -162,7 +193,7 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     now += Duration::from_millis(100);
     detector.update(&right_wink, now);
     now += Duration::from_millis(50);
-    let evt_reopen2 = detector.update(&both_open, now);
+    let evt_reopen2 = settle_open(&mut detector, &both_open, &mut now, 50);
     assert!(!evt_reopen2.is_blink);
     now += Duration::from_millis(1100);
     let evt_expired2 = detector.update(&both_open, now);
@@ -176,14 +207,15 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     now += Duration::from_millis(100);
     detector.update(&left_wink, now);
     now += Duration::from_millis(50);
-    detector.update(&both_open, now); // Left wink completed
+    let left_completed = settle_open_frames(&mut detector, &both_open, &mut now, 50, 4);
+    assert_eq!(left_completed.total_blinks, 0);
 
     now += Duration::from_millis(400); // 400ms gap (< 1.0s)
     detector.update(&right_wink, now);
     now += Duration::from_millis(100);
     detector.update(&right_wink, now);
     now += Duration::from_millis(50);
-    let evt_async_blink = detector.update(&both_open, now); // Right wink completed
+    let evt_async_blink = settle_open_frames(&mut detector, &both_open, &mut now, 50, 4);
     assert!(evt_async_blink.is_blink, "Sequential winking within 1.0s window MUST register as valid blink");
     assert_eq!(evt_async_blink.total_blinks, 1);
 
@@ -194,7 +226,7 @@ fn test_winking_single_eye_does_not_count_as_blink() {
     now += Duration::from_millis(100);
     detector.update(&both_closed, now);
     now += Duration::from_millis(50);
-    let evt_blink = detector.update(&both_open, now);
+    let evt_blink = settle_open_frames(&mut detector, &both_open, &mut now, 50, 4);
     assert!(evt_blink.is_blink, "Simultaneous closure of both eyes MUST register as valid blink");
     assert_eq!(evt_blink.total_blinks, 2);
 }
@@ -232,11 +264,9 @@ fn test_swollen_eyelid_asymmetric_blink_resilience() {
         now += Duration::from_millis(67);
         detector.update(&closed_asymmetric, now);
 
-        // Reopen (2 frames to settle EMA smoothing)
+        // Reopen and allow the two-sample hysteresis to settle through the EMA.
         now += Duration::from_millis(67);
-        detector.update(&open_asymmetric, now);
-        now += Duration::from_millis(67);
-        let evt = detector.update(&open_asymmetric, now);
+        let evt = settle_open(&mut detector, &open_asymmetric, &mut now, 67);
         if evt.is_blink {
             detected_blinks += 1;
         }
@@ -326,15 +356,13 @@ fn test_monocular_fallback_mode_and_recovery() {
     now += Duration::from_millis(100);
     detector.update(&left_blink, now);
     now += Duration::from_millis(100);
-    detector.update(&right_patched, now);
-    now += Duration::from_millis(100);
-    let evt_mono = detector.update(&right_patched, now);
+    let evt_mono = settle_open(&mut detector, &right_patched, &mut now, 100);
 
     assert!(evt_mono.is_blink, "Functional eye blink in Monocular Mode must be recognized");
     assert_eq!(detector.total_blinks(), 1);
 
     // Recovery: Right eye patch removed / reopens!
     now += Duration::from_millis(100);
-    detector.update(&both_open, now);
+    settle_open(&mut detector, &both_open, &mut now, 100);
     assert!(!detector.is_monocular(), "Reopening occluded eye must exit Monocular Mode back to Binocular");
 }

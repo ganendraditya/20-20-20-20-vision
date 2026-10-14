@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { CameraTestCounter, formatBlinkFeedback } from "./camera-feedback";
+import type { BlinkDiagnosticsDto } from "./camera-feedback";
 
 interface AppStatus {
   is_running: boolean;
@@ -24,6 +26,7 @@ interface CameraFrameDto {
   avg_ear: number;
   is_blinking: boolean;
   total_blinks: number;
+  blink_diagnostics?: BlinkDiagnosticsDto | null;
   eye_landmarks: LandmarkPoint[];
   face_landmarks: LandmarkPoint[];
   image_data_base64: string | null;
@@ -59,8 +62,7 @@ interface CalibrationResult {
   message: string;
 }
 
-let sandboxBlinks = 0;
-let wasBlinking = false;
+const sandboxCounter = new CameraTestCounter();
 let currentEar = 0.0;
 let isFaceDetected = false;
 let isCalibrating = false;
@@ -105,9 +107,16 @@ function setupTabs() {
 
       // Reset sandbox counter and notify backend if switching to Camera Test tab
       if (targetTab === "tab-camera") {
-        sandboxBlinks = 0;
+        sandboxCounter.reset();
         updateSandboxUI();
-        invoke("set_sandbox_viewing", { active: true }).catch(console.error);
+        resetBlinkFeedback();
+        // Snapshot the backend total before enabling preview events.
+        invoke<AppStatus>("get_status").then((status) => {
+          if (!pane?.classList.contains("active")) return;
+          sandboxCounter.reset(status.total_blinks_today);
+          updateSandboxUI();
+          return invoke("set_sandbox_viewing", { active: true });
+        }).catch(console.error);
       } else {
         invoke("set_sandbox_viewing", { active: false }).catch(console.error);
       }
@@ -133,14 +142,24 @@ function setupTabs() {
   // Sandbox reset button
   const resetBtn = document.getElementById("btn-reset-sandbox");
   resetBtn?.addEventListener("click", () => {
-    sandboxBlinks = 0;
+    sandboxCounter.reset();
     updateSandboxUI();
+    resetBlinkFeedback();
   });
 }
 
 function updateSandboxUI() {
   const lbl = document.getElementById("val-sandbox-blinks");
-  if (lbl) lbl.textContent = sandboxBlinks.toString();
+  if (lbl) lbl.textContent = sandboxCounter.value.toString();
+}
+
+function resetBlinkFeedback() {
+  const state = document.getElementById("cam-blink-state");
+  const result = document.getElementById("cam-blink-result");
+  const metrics = document.getElementById("cam-hud-trigger");
+  if (state) state.textContent = "Detector: waiting for frames";
+  if (result) result.textContent = "Last result: —";
+  if (metrics) metrics.textContent = "Smoothed EAR / cutoffs: —";
 }
 
 function setupIPC() {
@@ -338,6 +357,8 @@ async function listenToCameraFrames() {
     const hudBottom = document.getElementById("cam-hud-bottom");
     const earText = document.getElementById("cam-hud-ear");
     const triggerText = document.getElementById("cam-hud-trigger");
+    const blinkState = document.getElementById("cam-blink-state");
+    const blinkResult = document.getElementById("cam-blink-result");
     const faceText = document.getElementById("cam-hud-face");
     const yawText = document.getElementById("cam-hud-yaw");
     const pitchText = document.getElementById("cam-hud-pitch");
@@ -408,13 +429,15 @@ async function listenToCameraFrames() {
 
       // 1. EAR & Blink status
       if (earText) {
-        earText.textContent = `EAR: ${data.avg_ear.toFixed(2)}`;
+        earText.textContent = `Raw EAR: ${data.avg_ear.toFixed(2)}`;
         earText.className = data.is_blinking ? "hud-pill hud-pill-danger" : "hud-pill";
       }
 
-      if (triggerText) {
-        triggerText.textContent = "Trigger: Δ 35%";
-      }
+      const feedback = formatBlinkFeedback(data.blink_diagnostics);
+      if (triggerText) triggerText.textContent = feedback.metrics;
+      if (blinkState) blinkState.textContent = `Detector: ${feedback.state}`;
+      // Keep the last accepted/rejected result readable after its one-frame event.
+      if (blinkResult && feedback.result) blinkResult.textContent = `Last result: ${feedback.result}`;
 
       // 2. Face detection badge
       if (faceText) {
@@ -478,16 +501,8 @@ async function listenToCameraFrames() {
         }
       }
 
-      // Rising-edge trigger: count only on transition to prevent multi-frame duplicate increments
-      if (data.is_blinking) {
-        if (!wasBlinking) {
-          sandboxBlinks += 1;
-          updateSandboxUI();
-        }
-        wasBlinking = true;
-      } else {
-        wasBlinking = false;
-      }
+      sandboxCounter.update(data.total_blinks);
+      updateSandboxUI();
     });
   } catch (e) {
     console.error("Failed to register camera frame listener:", e);
@@ -510,6 +525,8 @@ function updateToggleUI(isRunning: boolean) {
     if (stateLbl) stateLbl.textContent = "OFF";
     if (statusLbl) statusLbl.textContent = "Monitoring Paused";
     if (dot) dot.style.background = "#6b7280";
+    const blinkState = document.getElementById("cam-blink-state");
+    if (blinkState) blinkState.textContent = "Detector: monitoring OFF";
   }
 }
 

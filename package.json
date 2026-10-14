@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "dev:record": "tauri build --debug --bundles app && codesign --force --deep --sign - --identifier com.ganendraditya.vision420 --entitlements src-tauri/Entitlements.plist src-tauri/target/debug/bundle/macos/420vision.app && open -n src-tauri/target/debug/bundle/macos/420vision.app --args --record-reference",
+    "dev:record:ab": "tauri build --debug --bundles app && codesign --force --deep --sign - --identifier com.ganendraditya.vision420 --entitlements src-tauri/Entitlements.plist src-tauri/target/debug/bundle/macos/420vision.app && open -n src-tauri/target/debug/bundle/macos/420vision.app --args --record-reference --ear-ab-test",
     "check": "tsc --noEmit && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {

@@ -264,10 +264,15 @@ fn test_benchmark_ema_alpha_noise_rejection_and_step_response() {
                 now += Duration::from_millis(frame_dt);
             }
 
-            // Settle reopened (advance by frame_dt to allow state machine to observe reopened eye)
-            detector.update(&open_lm, now);
-            now += Duration::from_millis(frame_dt);
-            let final_evt = detector.update(&open_lm, now);
+            // Allow the reopening hysteresis to confirm two consecutive recovered samples.
+            let mut final_evt = detector.update(&open_lm, now);
+            for _ in 0..8 {
+                if final_evt.total_blinks == 1 {
+                    break;
+                }
+                now += Duration::from_millis(frame_dt);
+                final_evt = detector.update(&open_lm, now);
+            }
 
             let status = if final_evt.total_blinks == 1 { "CAPTURED" } else { "REJECTED (<2 frames guard or <80ms)" };
             println!("{:<8} | {:<12} | {:<18} | {:<16}", fps, dur_ms, closed_frames, status);
