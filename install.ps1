@@ -41,7 +41,7 @@ try {
     Write-Host "Pre-built release binary not yet published on GitHub Releases." -ForegroundColor DarkYellow
     Write-Host "Checking for local build artifacts..." -ForegroundColor DarkYellow
 
-    $LocalExe = "src-tauri\target\x86_64-pc-windows-msvc\release\420vision.exe"
+    $LocalExe = "src-tauri\target\x86_64-pc-windows-msvc\release\vision420.exe"
     if (Test-Path $LocalExe) {
         Copy-Item $LocalExe -Destination (Join-Path $InstallDir "420vision.exe") -Force
         New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "models") | Out-Null

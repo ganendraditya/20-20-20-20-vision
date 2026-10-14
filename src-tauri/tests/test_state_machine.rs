@@ -224,27 +224,26 @@ fn test_swollen_eyelid_asymmetric_blink_resilience() {
     assert!(base_right < 0.25, "Right eye baseline must reflect swollen eye (~0.20)");
 
     // 2. Execute 5 consecutive natural blinks
+    // Count per cycle via total_blinks: EMA reopen settling means the blink may
+    // complete on a later open frame, so the exact frame is not what this test guards.
     let mut detected_blinks = 0;
     for _ in 0..5 {
+        let before = detector.total_blinks();
+
         // Closed for 2 frames (~134 ms)
         now += Duration::from_millis(67);
         detector.update(&closed_asymmetric, now);
         now += Duration::from_millis(67);
         detector.update(&closed_asymmetric, now);
 
-        // Reopen (2 frames to settle EMA smoothing)
-        now += Duration::from_millis(67);
-        detector.update(&open_asymmetric, now);
-        now += Duration::from_millis(67);
-        let evt = detector.update(&open_asymmetric, now);
-        if evt.is_blink {
-            detected_blinks += 1;
-        }
-
-        // Open pause between blinks
-        for _ in 0..8 {
+        // Reopen and open pause between blinks
+        for _ in 0..10 {
             now += Duration::from_millis(67);
             detector.update(&open_asymmetric, now);
+        }
+
+        if detector.total_blinks() > before {
+            detected_blinks += 1;
         }
     }
 
@@ -253,6 +252,24 @@ fn test_swollen_eyelid_asymmetric_blink_resilience() {
         "Swollen eye (EAR 0.20) must maintain 100% blink recall without being locked out"
     );
     assert_eq!(detector.total_blinks(), 5);
+}
+
+#[test]
+fn test_high_open_eye_baseline_recovers_downward() {
+    let mut detector = BlinkDetector::new(0.22, 8.0);
+    let mut now = Instant::now();
+    let initially_high = create_synthetic_landmarks(3.5, 10.0); // EAR 0.35
+    let actual_open = create_synthetic_landmarks(2.9, 10.0); // EAR 0.29
+
+    detector.update(&initially_high, now);
+    for _ in 0..50 {
+        now += Duration::from_millis(100);
+        detector.update(&actual_open, now);
+    }
+
+    let (left, right) = detector.baselines();
+    assert!(left.unwrap() < 0.30, "left baseline should recover to observed open EAR");
+    assert!(right.unwrap() < 0.30, "right baseline should recover to observed open EAR");
 }
 
 #[test]

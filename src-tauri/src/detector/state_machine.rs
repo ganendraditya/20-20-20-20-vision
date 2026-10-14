@@ -56,8 +56,12 @@ pub struct BlinkDetector {
     total_blinks: u32,
 }
 
-/// Relative drop from resting open baseline required to recognize eyelid closure (35% drop)
-pub const RELATIVE_BLINK_DROP: f32 = 0.35;
+/// Relative drop from resting open baseline required to recognize eyelid closure (20% drop).
+/// Kept deliberately loose: real blinks on a 720p webcam only dip ~25-35% in EAR.
+pub const RELATIVE_BLINK_DROP: f32 = 0.20;
+
+/// Downward baseline adaptation rate while the eye is above its closure threshold.
+pub const BASELINE_ALPHA_DOWN: f32 = 0.05;
 
 /// Floor below which baseline EAR will not adapt downwards (protects severely hooded or swollen eyes)
 pub const MIN_BASELINE_EAR: f32 = 0.12;
@@ -65,8 +69,9 @@ pub const MIN_BASELINE_EAR: f32 = 0.12;
 /// Ceiling above which baseline EAR will not adapt upwards
 pub const MAX_BASELINE_EAR: f32 = 0.65;
 
-/// Continuous closure duration on one eye before entering Monocular Fallback Mode (60 seconds)
-pub const DEFAULT_MONOCULAR_TIMEOUT_SECS: f32 = 60.0;
+/// Continuous closure duration on one eye before entering Monocular Fallback Mode (5 seconds).
+/// Short enough that a user with one weak or closed eye gets blink counting quickly.
+pub const DEFAULT_MONOCULAR_TIMEOUT_SECS: f32 = 5.0;
 
 impl BlinkDetector {
     pub fn new(threshold: f32, stare_limit_secs: f32) -> Self {
@@ -207,11 +212,11 @@ impl BlinkDetector {
             Some(mut b) => {
                 if !self.left_is_closed {
                     let e = ear_metrics.smoothed_left_ear;
-                    let thresh = b * (1.0 - RELATIVE_BLINK_DROP);
+                    let closure_threshold = b * (1.0 - RELATIVE_BLINK_DROP);
                     if e > b {
                         b = (b + (e - b) * 0.35).min(MAX_BASELINE_EAR);
-                    } else if e >= thresh {
-                        b = (b - (b - e) * 0.005).max(MIN_BASELINE_EAR);
+                    } else if e >= closure_threshold {
+                        b = (b - (b - e) * BASELINE_ALPHA_DOWN).max(MIN_BASELINE_EAR);
                     }
                 }
                 self.baseline_left = Some(b);
@@ -228,11 +233,11 @@ impl BlinkDetector {
             Some(mut b) => {
                 if !self.right_is_closed {
                     let e = ear_metrics.smoothed_right_ear;
-                    let thresh = b * (1.0 - RELATIVE_BLINK_DROP);
+                    let closure_threshold = b * (1.0 - RELATIVE_BLINK_DROP);
                     if e > b {
                         b = (b + (e - b) * 0.35).min(MAX_BASELINE_EAR);
-                    } else if e >= thresh {
-                        b = (b - (b - e) * 0.005).max(MIN_BASELINE_EAR);
+                    } else if e >= closure_threshold {
+                        b = (b - (b - e) * BASELINE_ALPHA_DOWN).max(MIN_BASELINE_EAR);
                     }
                 }
                 self.baseline_right = Some(b);
@@ -313,7 +318,8 @@ impl BlinkDetector {
         let mut right_blink_completed = false;
         let mut is_resting_event = false;
 
-        let min_closed_frames = if is_low_fps { 1 } else { 2 };
+        // One closed sample is enough: at 10-15 FPS a real blink often spans only one frame.
+        let min_closed_frames = 1;
 
         // --- Process Left Eye ---
         if left_eye_closed {
@@ -334,9 +340,8 @@ impl BlinkDetector {
         } else if self.left_is_closed {
             if let Some(start) = self.left_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                // Adaptive temporal guard: at low FPS (<= 12 FPS), accept 1-frame deep closure (80-120ms);
-                // at normal FPS (15-30 FPS), require at least 2 consecutive frames under closure.
-                if self.left_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
+                // A single closed sample is accepted only when the measured closure lasts 50-800ms.
+                if self.left_closed_frames >= min_closed_frames && (0.05..=0.8).contains(&duration) && !is_downward_reading_gaze {
                     left_blink_completed = true;
                 }
             }
@@ -374,7 +379,7 @@ impl BlinkDetector {
         } else if self.right_is_closed {
             if let Some(start) = self.right_closure_start {
                 let duration = now.checked_duration_since(start).map(|d| d.as_secs_f32()).unwrap_or(0.0);
-                if self.right_closed_frames >= min_closed_frames && (0.08..=0.8).contains(&duration) && !is_downward_reading_gaze {
+                if self.right_closed_frames >= min_closed_frames && (0.05..=0.8).contains(&duration) && !is_downward_reading_gaze {
                     right_blink_completed = true;
                 }
             }

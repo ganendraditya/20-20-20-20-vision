@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">420Vision symbol — cyan and amber on near-black</title>
+
+  <g transform="translate(-11 10)" fill="none" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 154C68 146 88 126 108 108" stroke="#24C8DB" />
+    <path d="M140 84C162 68 182 54 202 48" stroke="#24C8DB" />
+    <path d="M62 202C86 194 106 174 122 160" stroke="#FFC131" />
+    <path d="M154 136C176 120 196 106 220 100" stroke="#FFC131" />
+  </g>
+  <circle cx="223" cy="44" r="12" fill="#FFFFFF" />
+</svg>

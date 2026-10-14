@@ -90,41 +90,47 @@ impl CameraManager {
     }
 }
 
-/// Locate or fallback FaceMesh model path
-fn get_facemesh_model_path() -> PathBuf {
-    // 1. Check local models directory relative to current working directory
-    let local = PathBuf::from("models/facemesh.onnx");
-    if local.exists() {
-        return local;
+/// Resolve an ONNX model file by name.
+///
+/// Search order (first existing file wins):
+/// 1. `models/<name>` relative to the working directory (`cargo run` / `tauri dev` from repo root)
+/// 2. `../models/<name>` (`tauri dev` runs the binary from `src-tauri/`)
+/// 3. `~/.local/share/420vision/models/<name>` (written by `install.sh`)
+/// 4. `<data_dir>/420vision/models/<name>` (platform default, e.g. Application Support on macOS)
+///
+/// If nothing exists, the first candidate is returned so the caller's error names a real path.
+fn resolve_model_path(name: &str) -> PathBuf {
+    let mut candidates = vec![
+        PathBuf::from("models").join(name),
+        PathBuf::from("../models").join(name),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".local/share/420vision/models").join(name));
     }
-    // 2. Check installed bundle directory
-    if let Some(share) = dirs::data_dir() {
-        let installed = share.join("420vision/models/facemesh.onnx");
-        if installed.exists() {
-            return installed;
-        }
+    if let Some(data) = dirs::data_dir() {
+        candidates.push(data.join("420vision/models").join(name));
     }
-    local
+
+    candidates
+        .iter()
+        .find(|p| p.is_file())
+        .cloned()
+        .unwrap_or_else(|| candidates[0].clone())
 }
 
-/// Locate or fallback FaceDetector model path
+/// Locate FaceMesh model path
+fn get_facemesh_model_path() -> PathBuf {
+    resolve_model_path("facemesh.onnx")
+}
+
+/// Locate FaceDetector model path
 fn get_facedetector_model_path() -> PathBuf {
-    // 1. Check local models directory relative to current working directory
-    let local = PathBuf::from("models/ultraface.onnx");
-    if local.exists() {
-        return local;
-    }
-    // 2. Check installed bundle directory
-    if let Some(share) = dirs::data_dir() {
-        let installed = share.join("420vision/models/ultraface.onnx");
-        if installed.exists() {
-            return installed;
-        }
-    }
-    local
+    resolve_model_path("ultraface.onnx")
 }
 
 // Canonical MediaPipe landmark indices for eye contours and essential face structure
+pub const FACE_MESH_LANDMARK_COUNT: usize = 468;
+
 pub const EYE_INDICES: [usize; 16] = [
     33, 133, 159, 145, 158, 153, 160, 144, // Left eye
     362, 263, 386, 374, 387, 373, 385, 380, // Right eye
@@ -158,7 +164,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 Some(engine)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] Could not load FaceMesh model ({:?}): {}", model_path, e);
+                eprintln!("[420vision::vision] Could not load FaceMesh model ({:?}): {}. Place it in models/ or run the installer for your OS.", model_path, e);
                 None
             }
         };
@@ -171,7 +177,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 Some(detector)
             }
             Err(e) => {
-                eprintln!("[420vision::vision] Could not load UltraFace detector ({:?}): {}", detector_path, e);
+                eprintln!("[420vision::vision] Could not load UltraFace detector ({:?}): {}. Place it in models/ or run the installer for your OS.", detector_path, e);
                 None
             }
         };
@@ -183,6 +189,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             state.config.clone()
         };
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
+        // Opt-in EAR trace: set VISION420_DEBUG_EAR=1 and run from terminal. Prints once every 10 frames.
+        let debug_ear = std::env::var("VISION420_DEBUG_EAR").map(|v| v == "1").unwrap_or(false);
+        let mut debug_frame_counter: u64 = 0;
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
         let mut total_blinks: u32 = 0;
         let mut current_bpm: f32 = 0.0;
@@ -193,6 +202,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
         let mut eye_points_buf = Vec::with_capacity(EYE_INDICES.len());
         let mut face_points_buf = Vec::with_capacity(FACE_CONTOUR_INDICES.len());
+        let mut face_mesh_points_buf = Vec::with_capacity(FACE_MESH_LANDMARK_COUNT);
 
         loop {
             let now = Instant::now();
@@ -204,7 +214,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 (
                     state.status.is_running,
                     state.selected_camera_index,
-                    state.is_sandbox_viewing,
+                    state.sandbox_view.is_viewing(),
                     state.config.ear_threshold,
                     state.config.keep_awake_enabled,
                 )
@@ -307,6 +317,33 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                         // Run blink detector
                                         let event = blink_detector.update(&landmarks, now);
+                                        if debug_ear {
+                                            debug_frame_counter += 1;
+                                            let (bl, br) = blink_detector.baselines();
+                                            // Dense trace: print every frame that dips near threshold,
+                                            // or on any blink/resting event, plus a periodic heartbeat.
+                                            let dip = bl.map(|b| event.left_ear < b * 0.85).unwrap_or(false)
+                                                || br.map(|b| event.right_ear < b * 0.85).unwrap_or(false);
+                                            if dip || event.is_blink || event.is_resting || debug_frame_counter % 30 == 0 {
+                                                println!(
+                                                    "[420vision::debug] f={} facing={} pitch={:.1} yaw={:.1} L={:.3} R={:.3} avg={:.3} baseL={} baseR={} thr={:.2} blink={} resting={} stare={:.1}s warn={}",
+                                                    debug_frame_counter,
+                                                    is_facing,
+                                                    pose_opt.map(|p| p.pitch_deg).unwrap_or(0.0),
+                                                    pose_opt.map(|p| p.yaw_deg).unwrap_or(0.0),
+                                                    event.left_ear,
+                                                    event.right_ear,
+                                                    event.avg_ear,
+                                                    bl.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
+                                                    br.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
+                                                    initial_config.ear_threshold,
+                                                    event.is_blink,
+                                                    event.is_resting,
+                                                    event.stare_duration_secs,
+                                                    event.stare_warning,
+                                                );
+                                            }
+                                        }
                                         is_blinking = event.is_blink;
                                         total_blinks = event.total_blinks;
                                         current_bpm = event.current_bpm;
@@ -387,6 +424,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             if is_sandbox_viewing {
                                 eye_points_buf.clear();
                                 face_points_buf.clear();
+                                face_mesh_points_buf.clear();
 
                                 if is_face {
                                     if let Some(last_lm) = &landmarks_cache {
@@ -409,6 +447,17 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                                 let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
                                                 face_points_buf.push(LandmarkPoint { x: full_x, y: full_y });
                                             }
+                                        }
+
+                                        for lm in last_lm.iter().take(FACE_MESH_LANDMARK_COUNT) {
+                                            let full_x =
+                                                (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                            let full_y =
+                                                (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                            face_mesh_points_buf.push(LandmarkPoint {
+                                                x: full_x,
+                                                y: full_y,
+                                            });
                                         }
                                     }
                                 }
@@ -444,6 +493,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     total_blinks,
                                     eye_landmarks: eye_points_buf.clone(),
                                     face_landmarks: face_points_buf.clone(),
+                                    face_mesh_landmarks: face_mesh_points_buf.clone(),
                                     image_data_base64: base64_str,
                                     yaw_deg,
                                     pitch_deg,

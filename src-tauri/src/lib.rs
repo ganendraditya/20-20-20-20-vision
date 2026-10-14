@@ -32,10 +32,30 @@ pub struct CalibrationResult {
     pub message: String,
 }
 
+#[derive(Debug, Default)]
+struct SandboxViewState {
+    tab_active: bool,
+    window_focused: bool,
+}
+
+impl SandboxViewState {
+    fn set_tab_active(&mut self, active: bool) {
+        self.tab_active = active;
+    }
+
+    fn set_window_focused(&mut self, focused: bool) {
+        self.window_focused = focused;
+    }
+
+    fn is_viewing(&self) -> bool {
+        self.tab_active && self.window_focused
+    }
+}
+
 pub struct AppState {
     pub status: AppStatus,
     pub selected_camera_index: usize,
-    pub is_sandbox_viewing: bool,
+    sandbox_view: SandboxViewState,
     pub eye_calibrator: detector::EyeCalibrator,
     pub config: AppConfig,
 }
@@ -53,7 +73,7 @@ impl Default for AppState {
                 status_text: "Monitoring Active".to_string(),
             },
             selected_camera_index: config.selected_camera_index,
-            is_sandbox_viewing: false,
+            sandbox_view: SandboxViewState::default(),
             eye_calibrator: detector::EyeCalibrator::new(),
             config,
         }
@@ -86,7 +106,7 @@ fn toggle_monitoring(state: State<'_, Mutex<AppState>>) -> bool {
 #[tauri::command]
 fn set_sandbox_viewing(active: bool, state: State<'_, Mutex<AppState>>) {
     let mut state = state.lock().unwrap();
-    state.is_sandbox_viewing = active;
+    state.sandbox_view.set_tab_active(active);
     println!("[420vision::ipc] set_sandbox_viewing -> {}", active);
 }
 
@@ -251,7 +271,7 @@ fn get_stats() -> Vec<DailyCompliance> {
 fn hide_window(app: AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
-    state.is_sandbox_viewing = false;
+    state.sandbox_view.set_window_focused(false);
     println!("[420vision::ipc] hide_window called");
 
     if let Some(window) = app.get_webview_window("main") {
@@ -274,6 +294,22 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if window.label() == "main" {
+                    if let Some(state) = window.try_state::<Mutex<AppState>>() {
+                        if let Ok(mut state) = state.lock() {
+                            state.sandbox_view.set_window_focused(*focused);
+                        }
+                    }
+                    // Stop preview work while hidden, then resume only if Camera Test
+                    // was still the selected tab when the window regains focus.
+                    if !*focused {
+                        let _ = window.hide();
+                    }
+                }
+            }
+        })
         .setup(|app| {
             // Start the background camera capture daemon
             capture::run_capture_loop(app.handle().clone());
@@ -333,17 +369,14 @@ pub fn run() {
                             button_state: MouseButtonState::Up,
                             ..
                         } => {
+                            println!("[420vision::tray] Left click on tray icon");
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let state = app.state::<Mutex<AppState>>();
-                                    let mut state = state.lock().unwrap();
-                                    state.is_sandbox_viewing = false;
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
+                                // Always show + focus. Toggling on is_visible() made a
+                                // visible-but-unfocused window hide on the first click.
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
                             }
                         }
                         _ => {}
@@ -368,6 +401,49 @@ pub fn run() {
             quit_app,
             set_sandbox_viewing
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running 420vision application");
+        .build(tauri::generate_context!())
+        .expect("error while building 420vision application")
+        .run(|app, event| {
+            // Clicking the Dock icon while the app is running should show the window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                println!("[420vision::tray] Dock reopen");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            let _ = app;
+        });
+}
+
+#[cfg(test)]
+mod sandbox_view_state_tests {
+    use super::SandboxViewState;
+
+    #[test]
+    fn selected_camera_tab_resumes_after_focus_returns() {
+        let mut view = SandboxViewState::default();
+        view.set_tab_active(true);
+        view.set_window_focused(true);
+        assert!(view.is_viewing());
+
+        view.set_window_focused(false);
+        assert!(!view.is_viewing());
+
+        view.set_window_focused(true);
+        assert!(view.is_viewing());
+    }
+
+    #[test]
+    fn unselected_camera_tab_stays_stopped_after_focus_returns() {
+        let mut view = SandboxViewState::default();
+        view.set_tab_active(true);
+        view.set_window_focused(true);
+        view.set_tab_active(false);
+        view.set_window_focused(false);
+
+        view.set_window_focused(true);
+        assert!(!view.is_viewing());
+    }
 }
