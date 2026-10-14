@@ -125,6 +125,8 @@ fn get_facedetector_model_path() -> PathBuf {
 }
 
 // Canonical MediaPipe landmark indices for eye contours and essential face structure
+pub const FACE_MESH_LANDMARK_COUNT: usize = 468;
+
 pub const EYE_INDICES: [usize; 16] = [
     33, 133, 159, 145, 158, 153, 160, 144, // Left eye
     362, 263, 386, 374, 387, 373, 385, 380, // Right eye
@@ -193,6 +195,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         // Pre-allocated landmark buffers to prevent repeated heap re-allocations in hot loop
         let mut eye_points_buf = Vec::with_capacity(EYE_INDICES.len());
         let mut face_points_buf = Vec::with_capacity(FACE_CONTOUR_INDICES.len());
+        let mut face_mesh_points_buf = Vec::with_capacity(FACE_MESH_LANDMARK_COUNT);
 
         loop {
             let now = Instant::now();
@@ -387,6 +390,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             if is_sandbox_viewing {
                                 eye_points_buf.clear();
                                 face_points_buf.clear();
+                                face_mesh_points_buf.clear();
 
                                 if is_face {
                                     if let Some(last_lm) = &landmarks_cache {
@@ -409,6 +413,17 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                                 let full_y = (crop_y as f32 + lm.y * side as f32) / h as f32;
                                                 face_points_buf.push(LandmarkPoint { x: full_x, y: full_y });
                                             }
+                                        }
+
+                                        for lm in last_lm.iter().take(FACE_MESH_LANDMARK_COUNT) {
+                                            let full_x =
+                                                (crop_x as f32 + lm.x * side as f32) / w as f32;
+                                            let full_y =
+                                                (crop_y as f32 + lm.y * side as f32) / h as f32;
+                                            face_mesh_points_buf.push(LandmarkPoint {
+                                                x: full_x,
+                                                y: full_y,
+                                            });
                                         }
                                     }
                                 }
@@ -444,6 +459,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     total_blinks,
                                     eye_landmarks: eye_points_buf.clone(),
                                     face_landmarks: face_points_buf.clone(),
+                                    face_mesh_landmarks: face_mesh_points_buf.clone(),
                                     image_data_base64: base64_str,
                                     yaw_deg,
                                     pitch_deg,

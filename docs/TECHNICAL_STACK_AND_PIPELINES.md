@@ -360,7 +360,7 @@ All communication uses strongly typed DTOs via Tauri v2 IPC:
 | `update_config` | Invoke | `{ sound_enabled?: bool, stare_alert_enabled?: bool, keep_awake_enabled?: bool }` | `AppConfig` | Atomically updates and persists user settings from UI toggles. |
 | `hide_window` | Invoke | None | `()` | Hides the popover window to the system tray. |
 | `quit_app` | Invoke | None | `()` | Performs deterministic teardown, drops hardware handles, and exits cleanly. |
-| `camera-sandbox-frame`| Event (Push) | `CameraFrameDto` | Stream | Emits live preview frame (JPEG base64) + dual landmark arrays (15 FPS). |
+| `camera-sandbox-frame`| Event (Push) | `CameraFrameDto` | Stream | While the Camera Test tab is open, emits a JPEG thumbnail capped at 320×180 and landmark arrays (up to 15 FPS; throttled to 5 FPS when no face is detected). |
 
 ### 6.1 `CameraFrameDto` Contract
 ```typescript
@@ -373,9 +373,10 @@ interface CameraFrameDto {
   avg_ear: number;
   is_blinking: boolean;
   total_blinks: number;
-  eye_landmarks: Array<{ x: number; y: number }>;   // 16 points (re-mapped to full frame [0..1])
-  face_landmarks: Array<{ x: number; y: number }>;  // 58 points (contour jawline, eyebrows, nose, mouth)
-  image_data_base64: string | null;                 // 320x180 JPEG thumbnail
+  eye_landmarks: Array<{ x: number; y: number }>;   // 16 selected eye points (re-mapped to full frame [0..1])
+  face_landmarks: Array<{ x: number; y: number }>;  // 75 selected feature points (jawline, brows, nose, lips)
+  face_mesh_landmarks?: Array<{ x: number; y: number }>; // 468 points for the camera-test wireframe; empty without a face, absent in older payloads
+  image_data_base64: string | null;                 // JPEG thumbnail capped at 320×180
   yaw_deg: number;                                  // Head horizontal turn angle (degrees)
   pitch_deg: number;                                // Head vertical pitch angle (degrees)
   roll_deg: number;                                 // In-plane head tilt angle (degrees)
@@ -383,6 +384,8 @@ interface CameraFrameDto {
   is_resting_gaze: boolean;                         // Meets optical distance rest criteria
 }
 ```
+
+`face_mesh_landmarks` is an additive sandbox-only field with a Serde default for older payloads. The frontend renders the official MediaPipe 468-point tessellation (1,322 unique edges) as a low-opacity wireframe, then overlays lighter feature contours and a cyan/red eye outline. The static topology and its Apache-2.0 attribution live in `src/faceMeshTopology.ts`. The daemon sends these normalized points only while the sandbox tab is viewed; the inference model, detector, and production monitoring path are unchanged.
 
 ---
 
