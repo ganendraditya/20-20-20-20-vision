@@ -257,10 +257,10 @@ To protect users experiencing unilateral swelling (styes, blepharitis, ptosis) o
 * **Independent Adaptive Open Baselines:**
   - Continuously tracks independent open-eye baselines $B_L$ and $B_R$.
   - When eye EAR $> B$, baseline adapts upwards quickly ($\alpha_{\text{up}} = 0.35$).
-  - When resting open between threshold and baseline, adapts downwards slowly ($\alpha_{\text{down}} = 0.005$) to accommodate gradual relaxation.
+  - When resting open between the closure threshold and baseline, adapts downwards ($\alpha_{\text{down}} = 0.05$) so a previously high baseline can recover promptly.
   - While eye is closed ($\text{EAR} < \text{Threshold}$), baseline updates freeze.
-* **Proportional Relative-Drop Closure ($\ge 35\%$ Drop):**
-  $$\text{Threshold}_{\text{eye}} = \min(\text{Threshold}_{\text{config}}, B_{\text{eye}} \times (1.0 - 0.35))$$
+* **Proportional Relative-Drop Closure ($\ge 20\%$ Drop):**
+  $$\text{Threshold}_{\text{eye}} = \min(\text{Threshold}_{\text{config}}, B_{\text{eye}} \times (1.0 - 0.20))$$
   - A swollen eye ($B_R \approx 0.20$) dynamically adjusts its threshold to $0.130$, preventing it from being locked out as permanently closed by the default $0.22$ cutoff.
 * **Monocular Fallback Mode:**
   - If exactly one eye is continuously closed for $\ge 60.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.

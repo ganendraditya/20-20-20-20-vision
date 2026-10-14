@@ -189,6 +189,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             state.config.clone()
         };
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
+        // Opt-in EAR trace: set VISION420_DEBUG_EAR=1 and run from terminal. Prints once every 10 frames.
+        let debug_ear = std::env::var("VISION420_DEBUG_EAR").map(|v| v == "1").unwrap_or(false);
+        let mut debug_frame_counter: u64 = 0;
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
         let mut total_blinks: u32 = 0;
         let mut current_bpm: f32 = 0.0;
@@ -314,6 +317,33 @@ pub fn run_capture_loop(app_handle: AppHandle) {
 
                                         // Run blink detector
                                         let event = blink_detector.update(&landmarks, now);
+                                        if debug_ear {
+                                            debug_frame_counter += 1;
+                                            let (bl, br) = blink_detector.baselines();
+                                            // Dense trace: print every frame that dips near threshold,
+                                            // or on any blink/resting event, plus a periodic heartbeat.
+                                            let dip = bl.map(|b| event.left_ear < b * 0.85).unwrap_or(false)
+                                                || br.map(|b| event.right_ear < b * 0.85).unwrap_or(false);
+                                            if dip || event.is_blink || event.is_resting || debug_frame_counter % 30 == 0 {
+                                                println!(
+                                                    "[420vision::debug] f={} facing={} pitch={:.1} yaw={:.1} L={:.3} R={:.3} avg={:.3} baseL={} baseR={} thr={:.2} blink={} resting={} stare={:.1}s warn={}",
+                                                    debug_frame_counter,
+                                                    is_facing,
+                                                    pose_opt.map(|p| p.pitch_deg).unwrap_or(0.0),
+                                                    pose_opt.map(|p| p.yaw_deg).unwrap_or(0.0),
+                                                    event.left_ear,
+                                                    event.right_ear,
+                                                    event.avg_ear,
+                                                    bl.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
+                                                    br.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
+                                                    initial_config.ear_threshold,
+                                                    event.is_blink,
+                                                    event.is_resting,
+                                                    event.stare_duration_secs,
+                                                    event.stare_warning,
+                                                );
+                                            }
+                                        }
                                         is_blinking = event.is_blink;
                                         total_blinks = event.total_blinks;
                                         current_bpm = event.current_bpm;
