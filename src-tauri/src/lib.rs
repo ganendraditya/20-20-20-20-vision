@@ -274,6 +274,19 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            // Popover behaviour: hide when the user clicks elsewhere, like a menu bar popover.
+            if let tauri::WindowEvent::Focused(false) = event {
+                if window.label() == "main" {
+                    if let Some(state) = window.try_state::<Mutex<AppState>>() {
+                        if let Ok(mut state) = state.lock() {
+                            state.is_sandbox_viewing = false;
+                        }
+                    }
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             // Start the background camera capture daemon
             capture::run_capture_loop(app.handle().clone());
@@ -333,17 +346,14 @@ pub fn run() {
                             button_state: MouseButtonState::Up,
                             ..
                         } => {
+                            println!("[420vision::tray] Left click on tray icon");
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let state = app.state::<Mutex<AppState>>();
-                                    let mut state = state.lock().unwrap();
-                                    state.is_sandbox_viewing = false;
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
+                                // Always show + focus. Toggling on is_visible() made a
+                                // visible-but-unfocused window hide on the first click.
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
                             }
                         }
                         _ => {}
@@ -368,6 +378,18 @@ pub fn run() {
             quit_app,
             set_sandbox_viewing
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running 420vision application");
+        .build(tauri::generate_context!())
+        .expect("error while building 420vision application")
+        .run(|app, event| {
+            // Clicking the Dock icon while the app is running should show the window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                println!("[420vision::tray] Dock reopen");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            let _ = app;
+        });
 }
