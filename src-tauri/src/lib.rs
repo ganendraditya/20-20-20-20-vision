@@ -285,13 +285,32 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+fn present_main_window(app: &AppHandle, source: &str) {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.show() {
+        eprintln!(
+            "[420vision::window] failed to show app from {}: {}",
+            source, error
+        );
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        println!("[420vision::window] presented main window via {}", source);
+    } else {
+        eprintln!("[420vision::window] main window not found via {}", source);
+    }
+}
+
 // ============================================================================
 // Application Entrypoint
 // ============================================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_opener::init())
         .on_window_event(|window, event| {
@@ -338,10 +357,7 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "open_window" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            present_main_window(app, "tray menu");
                         }
                         "toggle_pause" => {
                             let state = app.state::<Mutex<AppState>>();
@@ -363,7 +379,7 @@ pub fn run() {
                 })
                 .on_tray_icon_event(|tray, event| {
                     match event {
-                        // Left-click: toggle popover window
+                        // Left-click: present the main window.
                         TrayIconEvent::Click {
                             button: MouseButton::Left,
                             button_state: MouseButtonState::Up,
@@ -402,19 +418,22 @@ pub fn run() {
             set_sandbox_viewing
         ])
         .build(tauri::generate_context!())
-        .expect("error while building 420vision application")
-        .run(|app, event| {
-            // Clicking the Dock icon while the app is running should show the window.
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
-                println!("[420vision::tray] Dock reopen");
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-            let _ = app;
-        });
+        .expect("error while building 420vision application");
+
+    app.run(|app_handle, event| {
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            capture::stop_reference_capture();
+        }
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            println!("[420vision::window] Dock reopen received");
+            present_main_window(app_handle, "Dock reopen");
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = event;
+    });
 }
 
 #[cfg(test)]

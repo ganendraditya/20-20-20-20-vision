@@ -70,7 +70,7 @@
               <small class="text-muted">Look at the camera to test blinks</small>
             </div>
             <div id="cam-hud-top" class="cam-hud-bar cam-hud-bar-top" style="display: none;">
-              <span id="cam-hud-ear" class="hud-pill">EAR: 0.00</span>
+              <span id="cam-hud-ear" class="hud-pill">Raw EAR: 0.00</span>
               <span id="cam-hud-trigger" class="hud-pill">Trigger: Adaptive</span>
               <span id="cam-hud-face" class="hud-pill">Face: Searching</span>
             </div>
@@ -80,6 +80,11 @@
               <span id="cam-hud-roll" class="hud-pill">Roll: 0°</span>
               <span id="cam-hud-dist" class="hud-pill">Dist: -- cm</span>
             </div>
+          </div>
+          <div class="blink-feedback">
+            <p id="cam-blink-state">Detector: waiting for frames</p>
+            <p id="cam-hud-metrics">Smoothed EAR / cutoffs: —</p>
+            <p id="cam-blink-result" role="status" aria-live="polite">Last result: —</p>
           </div>
           <div class="sandbox-controls">
             <div class="sandbox-counter">

@@ -394,6 +394,17 @@ html.developer-branding .logo-title {
   padding: 12px 16px;
 }
 
+.blink-feedback {
+  margin-bottom: 12px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.blink-feedback p + p {
+  margin-top: 4px;
+}
+
 .sandbox-counter {
   font-size: 0.95rem;
   color: var(--text-secondary);

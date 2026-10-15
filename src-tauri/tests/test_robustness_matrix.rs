@@ -89,6 +89,21 @@ fn generate_heterogeneous_landmarks(
     lm
 }
 
+fn settle_open(
+    detector: &mut BlinkDetector,
+    open_landmarks: &[Landmark3D],
+    now: &mut Instant,
+    frame_dt_ms: u64,
+) -> vision420_lib::detector::BlinkEvent {
+    let mut event = detector.update(open_landmarks, *now);
+    for _ in 1..8 {
+        *now += Duration::from_millis(frame_dt_ms);
+        event = detector.update(open_landmarks, *now);
+    }
+    *now += Duration::from_millis(frame_dt_ms);
+    event
+}
+
 #[derive(Debug)]
 struct ScenarioResult {
     tier: &'static str,
@@ -142,10 +157,8 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
                 now += Duration::from_millis(frame_dt_ms);
             }
 
-            // 3. Reopened frames (2 frames to settle)
-            detector.update(&open_lm, now);
-            now += Duration::from_millis(frame_dt_ms);
-            let final_evt = detector.update(&open_lm, now);
+            // 3. Allow the detector's two-sample reopening hysteresis to settle.
+            let final_evt = settle_open(&mut detector, &open_lm, &mut now, frame_dt_ms);
 
             let expected = 1;
             let detected = final_evt.total_blinks;
@@ -194,9 +207,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
                 now += Duration::from_millis(frame_dt_ms);
             }
 
-            detector.update(&open_lm, now);
-            now += Duration::from_millis(frame_dt_ms);
-            let final_evt = detector.update(&open_lm, now);
+            let final_evt = settle_open(&mut detector, &open_lm, &mut now, frame_dt_ms);
 
             let detected = final_evt.total_blinks;
             let passed = detected == expected;
@@ -239,9 +250,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
 
             // Reopen
             let open_clean = generate_heterogeneous_landmarks(3.2, 3.2, 10.0, 0.0, 0.0, 0.0);
-            detector.update(&open_clean, now);
-            now += Duration::from_millis(frame_dt_ms);
-            let final_evt = detector.update(&open_clean, now);
+            let final_evt = settle_open(&mut detector, &open_clean, &mut now, frame_dt_ms);
 
             let passed = final_evt.total_blinks == 1;
             results.push(ScenarioResult {
@@ -266,9 +275,9 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
         {
             let mut detector = BlinkDetector::with_alpha(threshold, 2.0, 0.40);
             let mut now = Instant::now();
-            // Looking away yaw offset = 8.0 (yaw ratio ~0.53 > 0.35)
-            let away_open = generate_heterogeneous_landmarks(3.2, 3.2, 10.0, 0.0, 8.0, 0.0);
-            let away_closed = generate_heterogeneous_landmarks(0.8, 0.8, 10.0, 0.0, 8.0, 0.0);
+            // Outer eye corners are 40 units apart; 16 units of nose offset gives yaw ratio 0.40 > 0.35.
+            let away_open = generate_heterogeneous_landmarks(3.2, 3.2, 10.0, 0.0, 16.0, 0.0);
+            let away_closed = generate_heterogeneous_landmarks(0.8, 0.8, 10.0, 0.0, 16.0, 0.0);
 
             for _ in 0..10 {
                 detector.update(&away_open, now);
@@ -278,7 +287,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
                 detector.update(&away_closed, now);
                 now += Duration::from_millis(frame_dt_ms);
             }
-            let final_evt = detector.update(&away_open, now);
+            let final_evt = settle_open(&mut detector, &away_open, &mut now, frame_dt_ms);
             let passed = final_evt.total_blinks == 0;
             results.push(ScenarioResult {
                 tier: "TIER 4 (Gaze Anomaly)",
@@ -305,7 +314,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
                 detector.update(&left_wink, now);
                 now += Duration::from_millis(frame_dt_ms);
             }
-            detector.update(&both_open, now);
+            settle_open(&mut detector, &both_open, &mut now, frame_dt_ms);
             // Advance past 1.0s pairing expiry
             now += Duration::from_millis(1100);
             let final_evt = detector.update(&both_open, now);
@@ -336,9 +345,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
                 detector.update(&both_closed, now);
                 now += Duration::from_millis(frame_dt_ms);
             }
-            detector.update(&both_open, now);
-            now += Duration::from_millis(frame_dt_ms);
-            let final_evt = detector.update(&both_open, now);
+            let final_evt = settle_open(&mut detector, &both_open, &mut now, frame_dt_ms);
             let passed = final_evt.total_blinks == 0;
             results.push(ScenarioResult {
                 tier: "TIER 4 (Gaze Anomaly)",
@@ -376,9 +383,7 @@ fn test_comprehensive_robustness_and_frame_pacing_matrix_100_runs() {
         }
 
         // Reopen with thread recovery
-        detector.update(&open_lm, now);
-        now += Duration::from_millis(1000 / fps);
-        let final_evt = detector.update(&open_lm, now);
+        let final_evt = settle_open(&mut detector, &open_lm, &mut now, 1000 / fps);
         let passed = final_evt.total_blinks == 1;
 
         results.push(ScenarioResult {

@@ -1,4 +1,6 @@
 pub mod frame;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod reference;
 
 pub use frame::{CameraFrameDto, LandmarkPoint};
 
@@ -25,6 +27,8 @@ use crate::AppState;
 
 pub struct CameraManager {
     camera: Option<Camera>,
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    reference_camera: Option<reference::ReferenceRecorder>,
     is_paused_by_conflict: bool,
 }
 
@@ -32,6 +36,8 @@ impl CameraManager {
     pub fn new() -> Self {
         Self {
             camera: None,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            reference_camera: None,
             is_paused_by_conflict: false,
         }
     }
@@ -57,6 +63,16 @@ impl CameraManager {
     pub fn init_camera(&mut self, index: usize) -> Result<(), String> {
         let idx = CameraIndex::Index(index as u32);
         println!("[420vision::camera] Attempting to initialize camera at index {}", index);
+
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if reference::enabled() {
+            let backend = native_api_backend().unwrap_or(nokhwa::utils::ApiBackend::Auto);
+            let cameras = query(backend).map_err(|e| e.to_string())?;
+            let camera = cameras.get(index).ok_or("Selected camera is unavailable")?;
+            self.reference_camera = Some(reference::ReferenceRecorder::start(&camera.misc())?);
+            self.is_paused_by_conflict = false;
+            return Ok(());
+        }
 
         // Try standard formats in priority order
         let candidate_formats = vec![
@@ -87,6 +103,56 @@ impl CameraManager {
             let _ = cam.stop_stream();
             println!("[420vision::camera] Camera stream released.");
         }
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if let Some(camera) = self.reference_camera.take() {
+            drop(camera); // Stops AVFoundation before finalizing the recording.
+            println!("[420vision::camera] Reference camera stream released.");
+        }
+    }
+
+    fn has_camera(&self) -> bool {
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if self.reference_camera.is_some() {
+            return true;
+        }
+        self.camera.is_some()
+    }
+
+    fn frame(&mut self) -> Result<Option<nokhwa::Buffer>, nokhwa::NokhwaError> {
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if let Some(camera) = &mut self.reference_camera {
+            return camera.frame();
+        }
+        self.camera
+            .as_mut()
+            .ok_or_else(|| nokhwa::NokhwaError::ReadFrameError("Camera is not open".into()))?
+            .frame()
+            .map(Some)
+    }
+
+    fn save_detector_log(&mut self, line: &str) {
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        if let Some(camera) = &mut self.reference_camera {
+            camera.log_detector(line);
+        }
+        #[cfg(not(all(debug_assertions, target_os = "macos")))]
+        let _ = line;
+    }
+}
+
+#[cfg(all(debug_assertions, target_os = "macos"))]
+static REFERENCE_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[cfg(all(debug_assertions, target_os = "macos"))]
+static REFERENCE_WORKER: Mutex<Option<thread::JoinHandle<()>>> = Mutex::new(None);
+
+/// Normal Quit must finalize an opt-in recording before the process exits.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub(crate) fn stop_reference_capture() {
+    if reference::enabled() {
+        REFERENCE_STOP.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(worker) = REFERENCE_WORKER.lock().unwrap().take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -95,14 +161,18 @@ impl CameraManager {
 /// Search order (first existing file wins):
 /// 1. `models/<name>` relative to the working directory (`cargo run` / `tauri dev` from repo root)
 /// 2. `../models/<name>` (`tauri dev` runs the binary from `src-tauri/`)
-/// 3. `~/.local/share/420vision/models/<name>` (written by `install.sh`)
-/// 4. `<data_dir>/420vision/models/<name>` (platform default, e.g. Application Support on macOS)
+/// 3. `<CARGO_MANIFEST_DIR>/../models/<name>` (workspace root, independent of process cwd)
+/// 4. `~/.local/share/420vision/models/<name>` (written by `install.sh`)
+/// 5. `<data_dir>/420vision/models/<name>` (platform default, e.g. Application Support on macOS)
 ///
 /// If nothing exists, the first candidate is returned so the caller's error names a real path.
 fn resolve_model_path(name: &str) -> PathBuf {
     let mut candidates = vec![
         PathBuf::from("models").join(name),
         PathBuf::from("../models").join(name),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../models")
+            .join(name),
     ];
     if let Some(home) = dirs::home_dir() {
         candidates.push(home.join(".local/share/420vision/models").join(name));
@@ -126,6 +196,73 @@ fn get_facemesh_model_path() -> PathBuf {
 /// Locate FaceDetector model path
 fn get_facedetector_model_path() -> PathBuf {
     resolve_model_path("ultraface.onnx")
+}
+
+#[derive(Clone, Copy, Default)]
+struct DebugFrameTimings {
+    capture_ms: f32,
+    decode_ms: f32,
+    face_detector_ms: f32,
+    face_mesh_preprocess_ms: f32,
+    face_mesh_inference_ms: f32,
+    blink_detector_ms: f32,
+}
+
+fn elapsed_ms(start: Option<Instant>) -> f32 {
+    start
+        .map(|instant| instant.elapsed().as_secs_f32() * 1000.0)
+        .unwrap_or(0.0)
+}
+
+fn log_blink_diagnostics(
+    variant: &str,
+    frame_number: u64,
+    app_elapsed_secs: f32,
+    capture_wall_ms: Option<u128>,
+    capture_interval_ms: f32,
+    frame_started: Option<Instant>,
+    timings: &DebugFrameTimings,
+    face_detected: bool,
+    total_blinks: u32,
+    diagnostics: crate::detector::state_machine::BlinkDiagnostics,
+) -> String {
+    let line = format!(
+        "[420vision::debug] variant={} f={} t={:.1}s capture_wall_ms={} frame_dt={:.1}ms detector_dt={:.1}ms stage_ms[capture={:.1},decode={:.1},face={:.1},mesh_pre={:.1},mesh_infer={:.1},blink={:.1},total={:.1}] face={} facing={} pitch_down={} raw=({:.3},{:.3}) smooth=({:.3},{:.3}) baseline=({:.3},{:.3}) threshold=({:.3},{:.3}) eye=({:?},{:?}) closure_ms=({:.0},{:.0}) mono={} resting={} decision={:?} total_blinks={}",
+        variant,
+        frame_number,
+        app_elapsed_secs,
+        capture_wall_ms.unwrap_or(0),
+        capture_interval_ms,
+        diagnostics.frame_interval_ms,
+        timings.capture_ms,
+        timings.decode_ms,
+        timings.face_detector_ms,
+        timings.face_mesh_preprocess_ms,
+        timings.face_mesh_inference_ms,
+        timings.blink_detector_ms,
+        elapsed_ms(frame_started),
+        face_detected,
+        diagnostics.is_facing_camera,
+        diagnostics.is_downward_reading_gaze,
+        diagnostics.raw_left_ear.unwrap_or(-1.0),
+        diagnostics.raw_right_ear.unwrap_or(-1.0),
+        diagnostics.smoothed_left_ear.unwrap_or(-1.0),
+        diagnostics.smoothed_right_ear.unwrap_or(-1.0),
+        diagnostics.baseline_left.unwrap_or(-1.0),
+        diagnostics.baseline_right.unwrap_or(-1.0),
+        diagnostics.threshold_left.unwrap_or(-1.0),
+        diagnostics.threshold_right.unwrap_or(-1.0),
+        diagnostics.left_status,
+        diagnostics.right_status,
+        diagnostics.left_closure_ms,
+        diagnostics.right_closure_ms,
+        diagnostics.is_monocular,
+        diagnostics.is_resting,
+        diagnostics.decision,
+        total_blinks,
+    );
+    println!("{line}");
+    line
 }
 
 // Canonical MediaPipe landmark indices for eye contours and essential face structure
@@ -152,7 +289,7 @@ pub const FACE_CONTOUR_INDICES: [usize; 75] = [
 
 /// The background daemon loop that manages the camera stream & live vision inference
 pub fn run_capture_loop(app_handle: AppHandle) {
-    thread::spawn(move || {
+    let worker = thread::spawn(move || {
         let mut cam_manager = CameraManager::new();
         let mut current_cam_index = 9999; // Force init on first pass
 
@@ -189,9 +326,56 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             state.config.clone()
         };
         let mut blink_detector = BlinkDetector::new(initial_config.ear_threshold, initial_config.stare_limit_secs);
-        // Opt-in EAR trace: set VISION420_DEBUG_EAR=1 and run from terminal. Prints once every 10 frames.
-        let debug_ear = std::env::var("VISION420_DEBUG_EAR").map(|v| v == "1").unwrap_or(false);
-        let mut debug_frame_counter: u64 = 0;
+        // Diagnostics are opt-in because emitting one line per processed frame is intentionally verbose.
+        let debug_ear = std::env::var("VISION420_DEBUG_EAR")
+            .map(|value| value == "1")
+            .unwrap_or(false);
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        let debug_ear = debug_ear || reference::enabled();
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        let mut ear_ab_detectors: Vec<(&'static str, BlinkDetector)> =
+            if reference::ear_ab_test_enabled() {
+                println!(
+                    "[420vision::debug] EAR A/B enabled: baseline drop=35% alpha=0.40; threshold-only drop=25%; EMA-only alpha=0.70; combined drop=25% alpha=0.70"
+                );
+                vec![
+                    (
+                        "threshold25",
+                        BlinkDetector::with_experimental_parameters(
+                            initial_config.ear_threshold,
+                            initial_config.stare_limit_secs,
+                            0.40,
+                            0.25,
+                        ),
+                    ),
+                    (
+                        "alpha70",
+                        BlinkDetector::with_experimental_parameters(
+                            initial_config.ear_threshold,
+                            initial_config.stare_limit_secs,
+                            0.70,
+                            crate::detector::state_machine::RELATIVE_BLINK_DROP,
+                        ),
+                    ),
+                    (
+                        "threshold25_alpha70",
+                        BlinkDetector::with_experimental_parameters(
+                            initial_config.ear_threshold,
+                            initial_config.stare_limit_secs,
+                            0.70,
+                            0.25,
+                        ),
+                    ),
+                ]
+            } else {
+                Vec::new()
+            };
+        if debug_ear {
+            println!("[420vision::debug] EAR trace enabled (VISION420_DEBUG_EAR=1)");
+        }
+        let debug_started = debug_ear.then(Instant::now);
+        let mut debug_frame_counter = 0u64;
+        let mut last_debug_capture_at: Option<Instant> = None;
         let mut presence_timer = PresenceTimer::new(1200.0, 300.0);
         let mut total_blinks: u32 = 0;
         let mut current_bpm: f32 = 0.0;
@@ -205,6 +389,12 @@ pub fn run_capture_loop(app_handle: AppHandle) {
         let mut face_mesh_points_buf = Vec::with_capacity(FACE_MESH_LANDMARK_COUNT);
 
         loop {
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            if REFERENCE_STOP.load(std::sync::atomic::Ordering::Acquire) {
+                cam_manager.release_camera();
+                sleep_blocker.release();
+                break;
+            }
             let now = Instant::now();
 
             // Check state & dynamically synchronize threshold and power config
@@ -220,6 +410,10 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                 )
             };
             blink_detector.set_threshold(active_threshold);
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            for (_, detector) in &mut ear_ab_detectors {
+                detector.set_threshold(active_threshold);
+            }
 
             if !is_running {
                 cam_manager.release_camera();
@@ -231,7 +425,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
 
             // Handle Camera Selection Changes, initial start, or resume
-            if current_cam_index != selected_index || cam_manager.camera.is_none() {
+            if current_cam_index != selected_index || !cam_manager.has_camera() {
                 cam_manager.release_camera();
                 face_tracker.reset(); // Clear stale spatial state from previous camera
                 match cam_manager.init_camera(selected_index) {
@@ -259,10 +453,27 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
 
             // Capture Frame
-            if let Some(cam) = &mut cam_manager.camera {
-                match cam.frame() {
-                    Ok(frame) => {
+            if cam_manager.has_camera() {
+                let frame_started = debug_ear.then(Instant::now);
+                let capture_interval_ms = match (frame_started, last_debug_capture_at) {
+                    (Some(current), Some(previous)) => {
+                        current.duration_since(previous).as_secs_f32() * 1000.0
+                    }
+                    _ => 0.0,
+                };
+                if debug_ear {
+                    last_debug_capture_at = frame_started;
+                }
+                let mut timings = DebugFrameTimings::default();
+                let frame_result = cam_manager.frame();
+                timings.capture_ms = elapsed_ms(frame_started);
+
+                match frame_result {
+                    Ok(Some(frame)) => {
                         let (w, h) = (frame.resolution().width() as usize, frame.resolution().height() as usize);
+                        let capture_wall_ms = frame
+                            .capture_timestamp()
+                            .map(|timestamp| timestamp.as_millis());
                         
                         // Decode raw buffer to RGB
                         let mut is_face = false;
@@ -273,11 +484,21 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                         let mut landmarks_cache = None;
                         let mut head_pose_cache = None;
                         let mut distance_cm = 0.0f32;
+                        let mut detector_updated = false;
+                        #[cfg(all(debug_assertions, target_os = "macos"))]
+                        let mut ear_ab_blink_ms = Vec::with_capacity(ear_ab_detectors.len());
 
-                        if let Ok(rgb_img) = frame.decode_image::<RgbFormat>() {
+                        let decode_started = debug_ear.then(Instant::now);
+                        let decoded_frame = frame.decode_image::<RgbFormat>();
+                        timings.decode_ms = elapsed_ms(decode_started);
+                        if debug_ear && decoded_frame.is_err() {
+                            eprintln!("[420vision::debug] RGB frame decode failed");
+                        }
+                        if let Ok(rgb_img) = decoded_frame {
                             let raw_bytes = rgb_img.as_raw();
 
                             // Gatekeeper: Verify facial presence & extract primary dominant bounding box with Adaptive RoI Zoom (Issue #43, #52, #63)
+                            let face_detector_started = debug_ear.then(Instant::now);
                             let (face_present, dominant_bbox) = if let Some(detector) = &mut face_detector {
                                 match detector.detect_with_adaptive_roi(raw_bytes, w, h, Some(&mut face_tracker)) {
                                     Ok((detected, bbox)) => (detected, bbox),
@@ -289,6 +510,7 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             } else {
                                 (true, None) // Detector not available, fallback
                             };
+                            timings.face_detector_ms = elapsed_ms(face_detector_started);
 
                             // Track the active crop origin and scale for mapping landmarks back to full-frame space
                             let mut active_crop = None;
@@ -304,8 +526,21 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     let crop = FaceBoundingBox::compute_crop_region(dominant_bbox.as_ref(), w, h);
                                     active_crop = Some(crop);
 
+                                    let mesh_preprocess_started = debug_ear.then(Instant::now);
                                     let preprocessed = engine.preprocess(raw_bytes, w, h, dominant_bbox.as_ref());
-                                    if let Ok(landmarks) = engine.infer(preprocessed) {
+                                    timings.face_mesh_preprocess_ms = elapsed_ms(mesh_preprocess_started);
+                                    let mesh_inference_started = debug_ear.then(Instant::now);
+                                    let inference_result = engine.infer(preprocessed);
+                                    timings.face_mesh_inference_ms = elapsed_ms(mesh_inference_started);
+                                    if let Err(error) = &inference_result {
+                                        if debug_ear {
+                                            eprintln!(
+                                                "[420vision::debug] FaceMesh inference failed: {}",
+                                                error
+                                            );
+                                        }
+                                    }
+                                    if let Ok(landmarks) = inference_result {
                                         // Evaluate 3D Head Pose Gaze Gate (Issue #48 & #73):
                                         // User is considered facing screen ONLY if not turned away (yaw <= 0.35)
                                         // and not gazing far upward (pitch < 0.15).
@@ -316,34 +551,17 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                         head_pose_cache = pose_opt;
 
                                         // Run blink detector
+                                        let blink_detector_started = debug_ear.then(Instant::now);
                                         let event = blink_detector.update(&landmarks, now);
-                                        if debug_ear {
-                                            debug_frame_counter += 1;
-                                            let (bl, br) = blink_detector.baselines();
-                                            // Dense trace: print every frame that dips near threshold,
-                                            // or on any blink/resting event, plus a periodic heartbeat.
-                                            let dip = bl.map(|b| event.left_ear < b * 0.85).unwrap_or(false)
-                                                || br.map(|b| event.right_ear < b * 0.85).unwrap_or(false);
-                                            if dip || event.is_blink || event.is_resting || debug_frame_counter % 30 == 0 {
-                                                println!(
-                                                    "[420vision::debug] f={} facing={} pitch={:.1} yaw={:.1} L={:.3} R={:.3} avg={:.3} baseL={} baseR={} thr={:.2} blink={} resting={} stare={:.1}s warn={}",
-                                                    debug_frame_counter,
-                                                    is_facing,
-                                                    pose_opt.map(|p| p.pitch_deg).unwrap_or(0.0),
-                                                    pose_opt.map(|p| p.yaw_deg).unwrap_or(0.0),
-                                                    event.left_ear,
-                                                    event.right_ear,
-                                                    event.avg_ear,
-                                                    bl.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
-                                                    br.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".into()),
-                                                    initial_config.ear_threshold,
-                                                    event.is_blink,
-                                                    event.is_resting,
-                                                    event.stare_duration_secs,
-                                                    event.stare_warning,
-                                                );
-                                            }
+                                        timings.blink_detector_ms =
+                                            elapsed_ms(blink_detector_started);
+                                        #[cfg(all(debug_assertions, target_os = "macos"))]
+                                        for (_, detector) in &mut ear_ab_detectors {
+                                            let started = Instant::now();
+                                            detector.update(&landmarks, now);
+                                            ear_ab_blink_ms.push(elapsed_ms(Some(started)));
                                         }
+                                        detector_updated = true;
                                         is_blinking = event.is_blink;
                                         total_blinks = event.total_blinks;
                                         current_bpm = event.current_bpm;
@@ -360,12 +578,26 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                         }
                                     } else {
                                         blink_detector.update(&[], now);
+                                        #[cfg(all(debug_assertions, target_os = "macos"))]
+                                        for (_, detector) in &mut ear_ab_detectors {
+                                            let started = Instant::now();
+                                            detector.update(&[], now);
+                                            ear_ab_blink_ms.push(elapsed_ms(Some(started)));
+                                        }
+                                        detector_updated = true;
                                     }
                                 }
                             } else {
                                 is_face = false;
                                 landmarks_cache = None;
                                 blink_detector.update(&[], now);
+                                #[cfg(all(debug_assertions, target_os = "macos"))]
+                                for (_, detector) in &mut ear_ab_detectors {
+                                    let started = Instant::now();
+                                    detector.update(&[], now);
+                                    ear_ab_blink_ms.push(elapsed_ms(Some(started)));
+                                }
+                                detector_updated = true;
                             }
 
                             // Presence-Aware Smart Keep-Awake (Issue #62):
@@ -491,6 +723,9 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                                     avg_ear,
                                     is_blinking,
                                     total_blinks,
+                                    blink_diagnostics: detector_updated.then(|| {
+                                        frame::BlinkDiagnosticsDto::from(blink_detector.diagnostics())
+                                    }),
                                     eye_landmarks: eye_points_buf.clone(),
                                     face_landmarks: face_points_buf.clone(),
                                     face_mesh_landmarks: face_mesh_points_buf.clone(),
@@ -505,21 +740,76 @@ pub fn run_capture_loop(app_handle: AppHandle) {
                             }
                         }
 
+                        if debug_ear && detector_updated {
+                            debug_frame_counter += 1;
+                            let line = log_blink_diagnostics(
+                                "baseline",
+                                debug_frame_counter,
+                                debug_started
+                                    .map(|started| started.elapsed().as_secs_f32())
+                                    .unwrap_or(0.0),
+                                capture_wall_ms,
+                                capture_interval_ms,
+                                frame_started,
+                                &timings,
+                                is_face,
+                                total_blinks,
+                                blink_detector.diagnostics(),
+                            );
+                            cam_manager.save_detector_log(&line);
+                            #[cfg(all(debug_assertions, target_os = "macos"))]
+                            for (index, (variant, detector)) in
+                                ear_ab_detectors.iter().enumerate()
+                            {
+                                let mut variant_timings = timings;
+                                variant_timings.blink_detector_ms =
+                                    ear_ab_blink_ms.get(index).copied().unwrap_or_default();
+                                let line = log_blink_diagnostics(
+                                    variant,
+                                    debug_frame_counter,
+                                    debug_started
+                                        .map(|started| started.elapsed().as_secs_f32())
+                                        .unwrap_or(0.0),
+                                    capture_wall_ms,
+                                    capture_interval_ms,
+                                    frame_started,
+                                    &variant_timings,
+                                    is_face,
+                                    detector.total_blinks(),
+                                    detector.diagnostics(),
+                                );
+                                cam_manager.save_detector_log(&line);
+                            }
+                        }
+
                         // Adaptive Frame Pacing (Issue #40):
                         // When user is actively present and facing camera: 15 FPS (~67ms sleep)
                         // When user is Away / Paused or looking away: throttle to 5 FPS (~200ms sleep) to conserve CPU & battery
                         let throttle_ms = if is_face { 67 } else { 200 };
                         thread::sleep(Duration::from_millis(throttle_ms));
                     }
-                    Err(nokhwa::NokhwaError::ReadFrameError(_)) 
-                    | Err(nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
+                    Ok(None) => continue,
+                    Err(error @ nokhwa::NokhwaError::ReadFrameError(_))
+                    | Err(error @ nokhwa::NokhwaError::OpenDeviceError(_, _)) => {
+                        if debug_ear {
+                            eprintln!(
+                                "[420vision::debug] camera frame acquisition failed; yielding device: {}",
+                                error
+                            );
+                        }
                         cam_manager.release_camera();
                         cam_manager.is_paused_by_conflict = true;
                         sleep_blocker.release();
                         update_status_text(&app_handle, "Camera Paused (In Use)");
                         println!("[420vision::camera] Hardware contention detected (Zoom/Meet/FaceTime active). Yielding camera.");
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        if debug_ear {
+                            eprintln!(
+                                "[420vision::debug] camera frame acquisition failed: {}",
+                                error
+                            );
+                        }
                         sleep_blocker.release();
                         thread::sleep(Duration::from_millis(500));
                     }
@@ -531,6 +821,12 @@ pub fn run_capture_loop(app_handle: AppHandle) {
             }
         }
     });
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    if reference::enabled() {
+        *REFERENCE_WORKER.lock().unwrap() = Some(worker);
+    }
+    #[cfg(not(all(debug_assertions, target_os = "macos")))]
+    let _ = worker;
 }
 
 fn update_status_text(app: &AppHandle, text: &str) {
