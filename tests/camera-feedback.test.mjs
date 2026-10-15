@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { CameraTestCounter, formatBlinkFeedback } from "../src/camera-feedback.ts";
+
+test("Camera Test markup uses unique element IDs", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id);
+  assert.equal(new Set(ids).size, ids.length, "HTML IDs must be unique for IPC feedback targets");
+});
 
 const diagnostic = {
   version: 1,
@@ -50,6 +57,16 @@ test("tab re-entry starts a new test and stale preview totals cannot create phan
   counter.reset(0);
   assert.equal(counter.value, 0);
   counter.update(1);
+  assert.equal(counter.value, 1);
+});
+
+test("out-of-order status snapshots cannot reset a newer Camera Test entry", () => {
+  const counter = new CameraTestCounter();
+  const oldRequest = counter.beginStatusSnapshot();
+  const currentRequest = counter.beginStatusSnapshot();
+  assert.equal(counter.acceptStatusSnapshot(currentRequest, 11), true);
+  assert.equal(counter.acceptStatusSnapshot(oldRequest, 10), false);
+  counter.update(12);
   assert.equal(counter.value, 1);
 });
 

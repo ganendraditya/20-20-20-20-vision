@@ -100,6 +100,9 @@ pub struct CameraFrameDto {
     pub blink_diagnostics: Option<BlinkDiagnosticsDto>,
     pub eye_landmarks: Vec<LandmarkPoint>,
     pub face_landmarks: Vec<LandmarkPoint>,
+    /// Full 468-point FaceMesh for the camera-test wireframe; defaults empty for older payloads.
+    #[serde(default)]
+    pub face_mesh_landmarks: Vec<LandmarkPoint>,
     /// JPEG base64 or empty when window is minimized
     pub image_data_base64: Option<String>,
     pub yaw_deg: f32,

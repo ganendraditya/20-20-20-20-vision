@@ -58,8 +58,18 @@ else
     echo "Falling back to local/manual installation layout."
     
     # If ran from inside the repo clone, copy current binary if available
-    if [ -f "src-tauri/target/release/420vision" ]; then
-        cp "src-tauri/target/release/420vision" "${INSTALL_DIR}/420vision"
+    LOCAL_BIN=""
+    for candidate in \
+        "src-tauri/target/aarch64-apple-darwin/release/vision420" \
+        "src-tauri/target/release/vision420"; do
+        if [ -f "$candidate" ]; then
+            LOCAL_BIN="$candidate"
+            break
+        fi
+    done
+
+    if [ -n "$LOCAL_BIN" ]; then
+        cp "$LOCAL_BIN" "${INSTALL_DIR}/420vision"
         mkdir -p "${INSTALL_DIR}/models"
         [ -f "models/facemesh.onnx" ] && cp "models/facemesh.onnx" "${INSTALL_DIR}/models/"
         [ -f "models/ultraface.onnx" ] && cp "models/ultraface.onnx" "${INSTALL_DIR}/models/"

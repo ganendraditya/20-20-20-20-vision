@@ -67,6 +67,21 @@ body {
   color: var(--text-primary);
 }
 
+.dev-logo-mark {
+  display: none;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+html.developer-branding .dev-logo-mark {
+  display: block;
+}
+
+html.developer-branding .logo-title {
+  display: none;
+}
+
 .header-action-btn {
   background: transparent;
   border: none;

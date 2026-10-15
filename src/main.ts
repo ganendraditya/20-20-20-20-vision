@@ -2,6 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { CameraTestCounter, formatBlinkFeedback } from "./camera-feedback";
 import type { BlinkDiagnosticsDto } from "./camera-feedback";
+import {
+  FACE_MESH_CONTOUR_EDGES,
+  FACE_MESH_EYE_EDGES,
+  FACE_MESH_LANDMARK_COUNT,
+  FACE_MESH_TESSELLATION_EDGES,
+} from "./faceMeshTopology";
+
+if (import.meta.env.DEV) {
+  document.documentElement.classList.add("developer-branding");
+}
 
 interface AppStatus {
   is_running: boolean;
@@ -29,6 +39,7 @@ interface CameraFrameDto {
   blink_diagnostics?: BlinkDiagnosticsDto | null;
   eye_landmarks: LandmarkPoint[];
   face_landmarks: LandmarkPoint[];
+  face_mesh_landmarks?: LandmarkPoint[];
   image_data_base64: string | null;
   yaw_deg: number;
   pitch_deg: number;
@@ -89,6 +100,59 @@ if (document.readyState === "loading") {
   init();
 }
 
+function toCanvasLandmarks(
+  landmarks: LandmarkPoint[],
+  sourceWidth: number,
+  sourceHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): LandmarkPoint[] {
+  if (sourceWidth <= 0 || sourceHeight <= 0) return [];
+
+  // Match the camera image's object-fit: cover scale and centered crop.
+  const scale = Math.max(canvasWidth / sourceWidth, canvasHeight / sourceHeight);
+  const offsetX = (canvasWidth - sourceWidth * scale) / 2;
+  const offsetY = (canvasHeight - sourceHeight * scale) / 2;
+
+  return landmarks.map((point) => ({
+    x: offsetX + (1 - point.x) * sourceWidth * scale,
+    y: offsetY + point.y * sourceHeight * scale,
+  }));
+}
+
+function drawMeshEdges(
+  ctx: CanvasRenderingContext2D,
+  points: LandmarkPoint[],
+  edges: Uint16Array,
+  strokeStyle: string,
+  lineWidth: number,
+): boolean {
+  if (points.length === 0 || edges.length < 2) return false;
+
+  ctx.beginPath();
+  let drewEdge = false;
+  for (let i = 0; i + 1 < edges.length; i += 2) {
+    const start = points[edges[i]];
+    const end = points[edges[i + 1]];
+    if (!start || !end) continue;
+    if (!Number.isFinite(start.x) || !Number.isFinite(start.y)) continue;
+    if (!Number.isFinite(end.x) || !Number.isFinite(end.y)) continue;
+
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    drewEdge = true;
+  }
+
+  if (drewEdge) {
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+  return drewEdge;
+}
+
 function setupTabs() {
   const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
   const tabPanes = document.querySelectorAll<HTMLElement>(".tab-pane");
@@ -110,14 +174,16 @@ function setupTabs() {
         sandboxCounter.reset();
         updateSandboxUI();
         resetBlinkFeedback();
+        const request = sandboxCounter.beginStatusSnapshot();
         // Snapshot the backend total before enabling preview events.
         invoke<AppStatus>("get_status").then((status) => {
-          if (!pane?.classList.contains("active")) return;
-          sandboxCounter.reset(status.total_blinks_today);
+          if (!pane?.classList.contains("active")
+            || !sandboxCounter.acceptStatusSnapshot(request, status.total_blinks_today)) return;
           updateSandboxUI();
           return invoke("set_sandbox_viewing", { active: true });
         }).catch(console.error);
       } else {
+        sandboxCounter.invalidateStatusSnapshot();
         invoke("set_sandbox_viewing", { active: false }).catch(console.error);
       }
 
@@ -131,6 +197,7 @@ function setupTabs() {
   // Close / hide window button
   const closeBtn = document.getElementById("btn-close");
   closeBtn?.addEventListener("click", async () => {
+    sandboxCounter.invalidateStatusSnapshot();
     try {
       await invoke("set_sandbox_viewing", { active: false });
       await invoke("hide_window");
@@ -145,6 +212,9 @@ function setupTabs() {
     sandboxCounter.reset();
     updateSandboxUI();
     resetBlinkFeedback();
+    if (document.getElementById("tab-camera")?.classList.contains("active")) {
+      invoke("set_sandbox_viewing", { active: true }).catch(console.error);
+    }
   });
 }
 
@@ -156,7 +226,7 @@ function updateSandboxUI() {
 function resetBlinkFeedback() {
   const state = document.getElementById("cam-blink-state");
   const result = document.getElementById("cam-blink-result");
-  const metrics = document.getElementById("cam-hud-trigger");
+  const metrics = document.getElementById("cam-hud-metrics");
   if (state) state.textContent = "Detector: waiting for frames";
   if (result) result.textContent = "Last result: —";
   if (metrics) metrics.textContent = "Smoothed EAR / cutoffs: —";
@@ -356,7 +426,7 @@ async function listenToCameraFrames() {
     const hudTop = document.getElementById("cam-hud-top");
     const hudBottom = document.getElementById("cam-hud-bottom");
     const earText = document.getElementById("cam-hud-ear");
-    const triggerText = document.getElementById("cam-hud-trigger");
+    const metricsText = document.getElementById("cam-hud-metrics");
     const blinkState = document.getElementById("cam-blink-state");
     const blinkResult = document.getElementById("cam-blink-result");
     const faceText = document.getElementById("cam-hud-face");
@@ -390,34 +460,43 @@ async function listenToCameraFrames() {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const showEyeMesh = chkShowMesh ? chkShowMesh.checked : true;
+        const showWireMesh = chkShowMesh ? chkShowMesh.checked : true;
         const showFaceContour = chkShowFace ? chkShowFace.checked : true;
-
         let hasDrawn = false;
 
-        // 1. Draw Full Face Contour (jaw, eyebrows, nose, mouth)
-        if (showFaceContour && data.face_landmarks && data.face_landmarks.length > 0) {
-          hasDrawn = true;
-          ctx.fillStyle = "#a855f7"; // Vibrant purple for facial contours
-          for (const pt of data.face_landmarks) {
-            const px = (1.0 - pt.x) * canvas.width;
-            const py = pt.y * canvas.height;
-            ctx.beginPath();
-            ctx.arc(px, py, 1.8, 0, Math.PI * 2);
-            ctx.fill();
+        const meshLandmarks = data.face_mesh_landmarks ?? [];
+        if (meshLandmarks.length >= FACE_MESH_LANDMARK_COUNT) {
+          const points = toCanvasLandmarks(
+            meshLandmarks,
+            data.width,
+            data.height,
+            canvas.width,
+            canvas.height,
+          );
+          if (showWireMesh) {
+            hasDrawn = drawMeshEdges(
+              ctx,
+              points,
+              FACE_MESH_TESSELLATION_EDGES,
+              "rgba(203, 213, 225, 0.34)",
+              0.55,
+            ) || hasDrawn;
           }
-        }
-
-        // 2. Draw Eye Mesh Overlay
-        if (showEyeMesh && data.eye_landmarks && data.eye_landmarks.length > 0) {
-          hasDrawn = true;
-          ctx.fillStyle = data.is_blinking ? "#ef4444" : "#38bdf8"; // Red when blinking, cyan when open
-          for (const pt of data.eye_landmarks) {
-            const px = (1.0 - pt.x) * canvas.width;
-            const py = pt.y * canvas.height;
-            ctx.beginPath();
-            ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-            ctx.fill();
+          if (showFaceContour) {
+            hasDrawn = drawMeshEdges(
+              ctx,
+              points,
+              FACE_MESH_CONTOUR_EDGES,
+              "rgba(226, 232, 240, 0.62)",
+              0.85,
+            ) || hasDrawn;
+            hasDrawn = drawMeshEdges(
+              ctx,
+              points,
+              FACE_MESH_EYE_EDGES,
+              data.is_blinking ? "rgba(248, 113, 113, 0.9)" : "rgba(56, 189, 248, 0.86)",
+              1,
+            ) || hasDrawn;
           }
         }
 
@@ -434,7 +513,7 @@ async function listenToCameraFrames() {
       }
 
       const feedback = formatBlinkFeedback(data.blink_diagnostics);
-      if (triggerText) triggerText.textContent = feedback.metrics;
+      if (metricsText) metricsText.textContent = feedback.metrics;
       if (blinkState) blinkState.textContent = `Detector: ${feedback.state}`;
       // Keep the last accepted/rejected result readable after its one-frame event.
       if (blinkResult && feedback.result) blinkResult.textContent = `Last result: ${feedback.result}`;

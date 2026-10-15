@@ -77,7 +77,9 @@
 | **Native Notifications** | Platform Subprocess | `osascript` (macOS) / Shell | Native desktop banner alerts without third-party daemon background daemons. |
 | **Audio Synthesizer** | In-Memory PCM / WAV | 44.1 kHz Sine Oscillator | Synthesizes pleasant sine bell chimes directly in memory, zero bundled audio MP3 assets needed. |
 
-ONNX model lookup checks `models/<filename>` relative to the process working directory, then the workspace-level `models/` directory derived from `CARGO_MANIFEST_DIR` (for `tauri dev`), and finally the installed `420vision/models/` directory under the platform data directory.
+At startup, ONNX models are resolved by checking `models/<name>` from the current working directory, `../models/<name>`, the workspace-level `models/` directory derived from `CARGO_MANIFEST_DIR`, `~/.local/share/420vision/models/<name>`, then `<data_dir>/420vision/models/<name>`. The first existing file is loaded; if none exists, the first candidate is returned for a useful load error.
+
+The Tauri application tracks `src-tauri/Cargo.lock` to keep native dependency resolution reproducible, including prerelease ONNX Runtime (`ort`) APIs. CI and release test jobs use `cargo test --locked` so manifest/lockfile drift fails explicitly instead of silently selecting a newer incompatible prerelease.
 
 ---
 
@@ -244,7 +246,7 @@ $$\text{EMA}_t = \alpha \cdot \text{EAR}_t + (1 - \alpha) \cdot \text{EMA}_{t-1}
 
 1. **Duration Window Validation:**
    * Closure duration must satisfy: $80\text{ ms} \le \Delta t \le 800\text{ ms}$.
-   * $\Delta t < 80\text{ ms}$: Discarded as single-frame camera sensor glitch.
+   * $\Delta t < 80\text{ ms}$: Discarded as a short sensor fluctuation.
    * $\Delta t \ge 1000\text{ ms}$: Flags `is_resting` (eyes closed in thought/nap); pauses stare warning timer.
 2. **Asynchronous Left-Right Pairing Window ($1.0\text{s}$):**
    * Real human blinks exhibit natural micro-desynchronization between eyes.
@@ -265,7 +267,7 @@ To protect users experiencing unilateral swelling (styes, blepharitis, ptosis) o
   - For a low open baseline ($B_R \approx 0.20$) and a higher configured threshold ($0.22$), the cap yields $0.180$ so the eye is not permanently classified as closed.
 * **Reopening Hysteresis:** The sampled closure duration ends at the first raw EAR sample reaching the midpoint between the closure cutoff and the open baseline. Confirmation still requires two consecutive samples where both raw and smoothed EAR reach that midpoint. A one-sample reopening spike therefore does not split one closure into separate blink candidates, while EMA lag does not extend the biological-duration estimate. The duration guard still accepts sampled closures in $[80, 800]$ ms.
 * **Monocular Fallback Mode:**
-  - If exactly one eye is continuously closed for $\ge 60.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
+  - If exactly one eye is continuously closed for $\ge 5.0\text{ s}$ (e.g. medical patch), the detector automatically enters Monocular Mode, allowing blinks on the single functional eye to register immediately without pairing requirements.
   - Reopening the occluded eye seamlessly restores Binocular Mode.
 
 ### 3.4.2 Velocity Slope Sampling for Low-FPS (10–12 FPS) Micro-Blinks (Issue #64)
@@ -275,8 +277,8 @@ On low-end webcams or low-light conditions running at $\le 12.5\text{ FPS}$ ($\D
   - Calculates per-eye velocity: $v_t = \frac{\text{EAR}_t - \text{EAR}_{t-1}}{\Delta t}$.
   - Detects rapid closing descent ($v_t \le -0.40\text{ s}^{-1}$ with drop $\ge 20\%$ below baseline), retains a velocity-only candidate across a low-EAR plateau for up to $800$ ms, and confirms reopening after two consecutive raw EAR samples reach the midpoint between closure cutoff and open-eye baseline, with smoothed EAR also reaching that midpoint before completion.
   - Velocity-only fallback is disabled and any pending slope candidate is cleared while that eye's static closure state is active. The static closure path alone owns duration validation for such closures, preventing a later EAR fluctuation during a long hold from bypassing the $800$ ms maximum. Rapid transients that never enter the static closure state remain eligible for the velocity-only path.
-* **Single-Frame Low-FPS Adaptive Window:**
-  - At detector intervals $80\text{--}160\text{ ms}$ (approximately $6.25\text{--}12.5\text{ FPS}$), one sampled closed frame is sufficient; other intervals require at least two closed samples.
+* **Single-Sample Temporal Guard:**
+  - One closed sample is sufficient at any frame rate; a static blink still requires a sampled duration of $80\text{--}800\text{ ms}$ and confirmed reopening. Low-FPS velocity sampling supplements this path.
 * **Downward Reading Gaze Immunity:**
   - When head pitch is tilted down toward desk/keyboard ($\text{Pitch} < -15^\circ$), blink triggers and velocity spikes are suppressed, preventing false positive blink counts during reading.
 
@@ -322,7 +324,7 @@ The latest synchronized live recording (38.5s; 1,143 video frames, zero reported
 
 Run `npm run dev:record` to build, ad-hoc sign, and launch a standalone debug `.app` with recording enabled. The launcher embeds the `com.apple.security.device.camera` entitlement; the app also has its own macOS TCC identity and `NSCameraUsageDescription`. Approve the macOS camera prompt for **420vision**. Do not use `tauri dev` launched as a child of OpenChamber for live camera tests: macOS attributes that child to OpenChamber, whose hardened-runtime identity lacks the camera entitlement. Release builds do not include the debug recorder.
 
-While this mode is enabled, `capture/reference_macos.m` owns one AVFoundation camera session. Its sample callback writes the camera-rate stream to an H.264 `AVAssetWriter` and makes only the latest RGB frame available to the Rust detector. The detector waits at most 200ms per capture read, so Monitoring OFF can stop the stream and finalize the video even if the camera stops delivering frames. No second camera owner, recorder subprocess, microphone, or raw-frame IPC is introduced. The video can run at the camera's actual cadence; detector/log updates remain at the existing inference cadence. Detector thresholds and state-machine rules are unchanged.
+While this mode is enabled, `capture/reference_macos.m` owns one AVFoundation camera session. Its sample callback writes the camera-rate stream to an H.264 `AVAssetWriter` and makes only the latest RGB frame available to the Rust detector. If a video write fails, the failure is logged once and camera frames continue to the detector; finalization also reports the failed recording. The detector waits at most 200ms per capture read, so Monitoring OFF can stop the stream and finalize the video even if the camera stops delivering frames. No second camera owner, recorder subprocess, microphone, or raw-frame IPC is introduced. The video can run at the camera's actual cadence; detector/log updates remain at the existing inference cadence. Detector thresholds and state-machine rules are unchanged.
 
 Monitoring ON opens the selected camera and starts a private `debug-recordings/session-*/` directory in the workspace. Monitoring OFF, camera switching, camera read failure, and normal app Quit stop the AVFoundation session, finalize the video, and flush the session's detector log. Hiding the window or closing the Camera Test tab does not stop monitoring or recording. A subsequent ON creates a new session. `Ctrl+C`, forced termination, and app rebuilds are not clean Quit; turn monitoring OFF and wait for the `SAVED` line before using them.
 
@@ -423,7 +425,7 @@ All communication uses strongly typed DTOs via Tauri v2 IPC:
 | `update_config` | Invoke | `{ sound_enabled?: bool, stare_alert_enabled?: bool, keep_awake_enabled?: bool }` | `AppConfig` | Atomically updates and persists user settings from UI toggles. |
 | `hide_window` | Invoke | None | `()` | Hides the popover window to the system tray. |
 | `quit_app` | Invoke | None | `()` | Performs deterministic teardown, drops hardware handles, and exits cleanly. |
-| `camera-sandbox-frame`| Event (Push) | `CameraFrameDto` | Stream | Emits live preview frame (JPEG base64) + dual landmark arrays (15 FPS). |
+| `camera-sandbox-frame`| Event (Push) | `CameraFrameDto` | Stream | While the Camera Test tab is open, emits a JPEG thumbnail capped at 320×180 and landmark arrays (up to 15 FPS; throttled to 5 FPS when no face is detected). |
 
 ### 6.1 `CameraFrameDto` Contract
 ```typescript
@@ -438,7 +440,8 @@ interface CameraFrameDto {
   total_blinks: number;                             // Authoritative cumulative detector count
   blink_diagnostics?: BlinkDiagnosticsDto | null;   // Additive, versioned feedback; null if no detector update
   eye_landmarks: Array<{ x: number; y: number }>;   // 16 points (re-mapped to full frame [0..1])
-  face_landmarks: Array<{ x: number; y: number }>;  // 58 points (contour jawline, eyebrows, nose, mouth)
+  face_landmarks: Array<{ x: number; y: number }>;  // 75 selected feature points (jawline, brows, nose, lips)
+  face_mesh_landmarks?: Array<{ x: number; y: number }>; // 468 sandbox wireframe points; absent in older payloads
   image_data_base64: string | null;                 // 320x180 JPEG thumbnail
   yaw_deg: number;                                  // Head horizontal turn angle (degrees)
   pitch_deg: number;                                // Head vertical pitch angle (degrees)
@@ -467,9 +470,12 @@ type EyeBlinkStatusDto = "open" | "closure_pending" | "candidate_completed"
   | "rejected_downward_gaze";
 ```
 
-**Camera Test feedback and count (14 Oct 2026):** Test Blinks is the backend's cumulative `total_blinks` minus the view's reset offset, not a frontend rising-edge count of `is_blinking`. Entering Camera Test snapshots `get_status.total_blinks_today` before enabling preview events; Reset changes only the local offset. Repeated totals cannot add counts, consecutive counted updates remain distinct, and skipped preview events are recovered by the next cumulative total. The worker's cumulative total is monotonic; lower preview totals queued before the status snapshot are ignored rather than interpreted as new counts. A new app process initializes a new view counter. The preview labels its existing average EAR as raw; below it, version-1 `blink_diagnostics` displays the actual smoothed per-eye EAR and effective cutoffs, current detector state, and the last counted/not-counted result. Long closures use neutral "not counted as a blink" wording, with active closures of at least one second shown as resting. The last result remains visible between transient events and is cleared on test entry or Reset. Closure durations are detector-sampled durations, not independently measured biological durations. Missing feedback is shown as unavailable rather than inferred from raw EAR. The DTO is mapped in `capture/frame.rs`, is emitted only with the existing Camera Test preview, and is not persisted. Detector thresholds, smoothing, temporal guards, velocity recovery, and pairing rules are unchanged. Run `node --experimental-strip-types --test tests/camera-feedback.test.mjs` for hardware-free UI logic regressions.
+**Camera Test feedback and count (14 Oct 2026):** Test Blinks is the backend's cumulative `total_blinks` minus the view's reset offset, not a frontend rising-edge count of `is_blinking`. Entering Camera Test snapshots `get_status.total_blinks_today` before enabling preview events; out-of-order status responses from previous entries are discarded by a per-entry request generation. Reset changes only the local offset. Repeated totals cannot add counts, consecutive counted updates remain distinct, and skipped preview events are recovered by the next cumulative total. The worker's cumulative total is monotonic; lower preview totals queued before the status snapshot are ignored rather than interpreted as new counts. A new app process initializes a new view counter. The preview labels its existing average EAR as raw; below it, version-1 `blink_diagnostics` displays the actual smoothed per-eye EAR and effective cutoffs, current detector state, and the last counted/not-counted result. Long closures use neutral "not counted as a blink" wording, with active closures of at least one second shown as resting. The last result remains visible between transient events and is cleared on test entry or Reset. Closure durations are detector-sampled durations, not independently measured biological durations. Missing feedback is shown as unavailable rather than inferred from raw EAR. The DTO is mapped in `capture/frame.rs`, is emitted only with the existing Camera Test preview, and is not persisted. Detector thresholds, smoothing, temporal guards, velocity recovery, and pairing rules are unchanged. Run `node --experimental-strip-types --test tests/camera-feedback.test.mjs` for hardware-free UI logic regressions.
 
 **Live Camera Test / recording alignment (14 Oct 2026):** In session `session-XIeBsu`, 1,060 video frames were written over 47.701s (22.20 FPS, no drops); 503/503 unique detector-update timestamps matched a recorded video-frame timestamp exactly (10.55 updates/s, median interval 100ms). The backend count reached four at video times 8.819s, 23.149s, 23.912s, and 27.086s; each increment aligned with a visible closure/reopening period. Visual review also found clear squeezed-eye periods that did not increment: at 13.75–14.00s only the right-eye EAR crossed its cutoff, leaving the detector waiting for the other eye; at 15.00–15.25s the eyes were visibly closed while the closest sampled smoothed EAR (0.216/0.211) remained above cutoffs (0.194/0.198); at 16.25–17.00s the sampled status remained `Open/Open`. The requested hand phase markers were not clearly visible, so these events cannot be assigned to the intended normal/squeeze/hold phases. This confirms the recorder and logs are aligned and demonstrates missed closures in this individual run, but is not a population recall estimate. The Camera Test counter now follows the backend cumulative count. Production thresholds and detector rules were not changed.
+`face_mesh_landmarks` is an additive sandbox-only field with a Serde default for older payloads. The frontend renders the official MediaPipe 468-point tessellation (1,322 unique edges) as a low-opacity wireframe, then overlays lighter feature contours and a cyan/red eye outline. The static topology and its Apache-2.0 attribution live in `src/faceMeshTopology.ts`. The daemon sends these normalized points only while the sandbox tab is viewed; the inference model, detector, and production monitoring path are unchanged.
+
+Sandbox frame emission is gated by both Camera Test tab selection and main-window focus. Losing focus stops preview work; regaining focus resumes it only when Camera Test remains selected.
 
 ---
 
@@ -487,7 +493,7 @@ type EyeBlinkStatusDto = "open" | "closure_pending" | "candidate_completed"
 
 ## 8. Desktop Window Activation (Tauri/macOS)
 
-The main webview starts hidden so 420vision can run from the menu bar without opening its dashboard. On macOS, a Dock reopen event always restores, shows, and focuses the main window. The menu-bar Open command does the same. A menu-bar icon click hides the window only when it is already visible and focused; if the window is hidden, minimized, or behind another app, the click restores and brings it forward instead. This prevents a click intended to focus a background window from hiding it first.
+The main webview starts hidden so 420vision can run from the menu bar without opening its dashboard. On macOS, a Dock reopen event always restores, shows, and focuses the main window. The menu-bar Open command and icon's left-click do the same; neither toggles visibility. The header Close action hides the window to the tray.
 
 ## 9. Local Development Server Ports
 

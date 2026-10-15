@@ -153,8 +153,9 @@ pub const MIN_BASELINE_EAR: f32 = 0.12;
 /// Ceiling above which baseline EAR will not adapt upwards
 pub const MAX_BASELINE_EAR: f32 = 0.65;
 
-/// Continuous closure duration on one eye before entering Monocular Fallback Mode (60 seconds)
-pub const DEFAULT_MONOCULAR_TIMEOUT_SECS: f32 = 60.0;
+/// Continuous closure duration on one eye before entering Monocular Fallback Mode (5 seconds).
+/// Short enough that a user with one weak or closed eye gets blink counting quickly.
+pub const DEFAULT_MONOCULAR_TIMEOUT_SECS: f32 = 5.0;
 
 impl BlinkDetector {
     pub fn new(threshold: f32, stare_limit_secs: f32) -> Self {
@@ -523,7 +524,8 @@ impl BlinkDetector {
         let mut left_closure_secs = 0.0f32;
         let mut right_closure_secs = 0.0f32;
 
-        let min_closed_frames = if is_low_fps { 1 } else { 2 };
+        // One closed sample is enough: at 10-15 FPS a real blink often spans only one frame.
+        let min_closed_frames = 1;
 
         // --- Process Left Eye ---
         if left_eye_closed {

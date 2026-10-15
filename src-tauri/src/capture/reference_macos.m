@@ -40,6 +40,7 @@ static void copy_error(char *destination, size_t capacity, NSString *message) {
     uint32_t _writerWidth;
     uint32_t _writerHeight;
     BOOL _stopped;
+    BOOL _failureLogged;
 }
 @property(nonatomic, strong) NSString *failure;
 - (BOOL)appendRGB:(const uint8_t *)rgb width:(uint32_t)width height:(uint32_t)height
@@ -222,7 +223,11 @@ static void copy_error(char *destination, size_t capacity, NSString *message) {
     char error[1024] = {0};
     if (![self appendRGB:rgb.bytes width:(uint32_t)width height:(uint32_t)height
                   wallMs:wallMs error:error capacity:sizeof(error)]) {
-        return;
+        if (!_failureLogged) {
+            _failureLogged = YES;
+            NSLog(@"[420vision::recording] Reference video write failed: %@",
+                  self.failure ?: @"Unknown writer error");
+        }
     }
 
     [_frameReady lock];

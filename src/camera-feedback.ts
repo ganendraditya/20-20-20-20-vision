@@ -21,9 +21,29 @@ export interface BlinkDiagnosticsDto {
 export class CameraTestCounter {
   private latest: number | null = null;
   private baseline: number | null = null;
+  private snapshotRequest = 0;
   value = 0;
 
+  beginStatusSnapshot() {
+    return ++this.snapshotRequest;
+  }
+
+  invalidateStatusSnapshot() {
+    this.snapshotRequest += 1;
+  }
+
+  acceptStatusSnapshot(request: number, total: number) {
+    if (request !== this.snapshotRequest) return false;
+    this.setBaseline(total);
+    return true;
+  }
+
   reset(total: number | null = this.latest) {
+    this.invalidateStatusSnapshot();
+    this.setBaseline(total);
+  }
+
+  private setBaseline(total: number | null) {
     this.latest = total;
     this.baseline = total;
     this.value = 0;
